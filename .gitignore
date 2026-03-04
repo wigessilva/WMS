@@ -1,0 +1,6 @@
+# Ignorar o ficheiro com as palavras-passe e segredos
+.env
+
+# (Pode adicionar outras coisas que nao quer enviar para a internet)
+__pycache__/
+*.log

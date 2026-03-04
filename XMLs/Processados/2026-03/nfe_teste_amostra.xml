@@ -1,0 +1,29 @@
+<nfeProc xmlns="http://www.portalfiscal.inf.br/nfe" versao="4.00">
+  <NFe>
+    <infNFe Id="NFe35260100000000000001550010000099921000000001" versao="4.00">
+      <ide>
+        <nNF>9992</nNF>
+        <dhEmi>2026-01-12T10:05:00-03:00</dhEmi>
+        <tpNF>1</tpNF>
+      </ide>
+      <emit>
+        <CNPJ>12345678000199</CNPJ>
+        <xNome>Fornecedor Parceiro S.A.</xNome>
+      </emit>
+      <dest>
+        <CNPJ>98765432000100</CNPJ>
+        <xNome>Sua Empresa WMS</xNome>
+      </dest>
+      <det nItem="1">
+        <prod>
+          <cProd>SKU-AMOSTRA-02</cProd>
+          <cEAN>7891000100020</cEAN>
+          <xProd>Amostra Gratis de Novo Produto</xProd>
+          <NCM>00000000</NCM>
+          <CFOP>5911</CFOP> <uCom>CX</uCom>
+          <qCom>1.0000</qCom>
+          <vUnCom>0.0000</vUnCom> </prod>
+      </det>
+    </infNFe>
+  </NFe>
+</nfeProc>
