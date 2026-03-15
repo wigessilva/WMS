@@ -181,7 +181,8 @@ class StatusPR:
 
         # --- MODO CABEÇALHO (Resumo) ---
         if itens_header is not None:
-            qtd_afetada = sum(1 for i in itens_header if i.get('status_calculado') == status)
+            qtd_afetada = sum(
+                1 for i in itens_header if i.get('Status') == status or i.get('StatusCalculado') == status)
             termo = "item" if qtd_afetada == 1 else "itens"
 
             if status == cls.BLOQUEADO_FISCAL:

@@ -239,12 +239,18 @@ class RecebimentoRepo(BaseRepo):
     def _calcular_status_real_item(self, item, header_status, unidade_valida=True):
 
         # ==============================================================================
-        # TRAVA DE STATUS FINAL
-        # Se o item ou o cabeçalho já estão finalizados, pula o recálculo de divergências
-        # e garante que a tabela inferior exiba o status definitivo.
+        # TRAVA DE STATUS FINAL E BLOQUEIOS
+        # Se o item já está finalizado ou bloqueado (ex: excesso de tentativas),
+        # pula o recálculo de divergências e preserva a decisão do sistema.
         # ==============================================================================
         status_banco = item.get('Status')
-        status_finais = [StatusPR.CONCLUIDO, StatusPR.CANCELADO, StatusPR.RECUSADO]
+        status_finais = [
+            StatusPR.CONCLUIDO,
+            StatusPR.CANCELADO,
+            StatusPR.RECUSADO,
+            StatusPR.BLOQUEADO_FISCAL,
+            StatusPR.AGUARDANDO_DECISAO
+        ]
 
         if status_banco in status_finais:
             return status_banco, item.get('ObsFiscal') or ""
@@ -254,8 +260,6 @@ class RecebimentoRepo(BaseRepo):
 
         # ==============================================================================
         # [TRAVA 2 - TRAVA DE CONFERÊNCIA PARCIAL (LPN)
-        # Se o conferente apertou "Novo LPN", o item está marcado como parcial.
-        # Isso impede que o sistema mude o status para Divergência/Análise antes da hora.
         # ==============================================================================
         dados_raw = item.get("dados_qualidade") or item.get("DadosQualidade") or "{}"
         if isinstance(dados_raw, str):
@@ -281,18 +285,14 @@ class RecebimentoRepo(BaseRepo):
         # --- LÓGICA DE SALDO PENDENTE ---
         qtd_oc_total = float(dados_item_oc['Qtd']) if dados_item_oc else 0.0
         qtd_oc_recebida = float(dados_item_oc.get('QtdRecebida', 0.0)) if dados_item_oc else 0.0
-        qtd_oc = max(0.0, qtd_oc_total - qtd_oc_recebida)  # A matemática fiscal usará o SALDO PENDENTE
+        qtd_oc = max(0.0, qtd_oc_total - qtd_oc_recebida)
 
         preco_oc = float(dados_item_oc['Preco']) if dados_item_oc else 0.0
         und_oc = dados_item_oc.get('Und', 'UN') if dados_item_oc else 'UN'
 
-        # --- NOVA LÓGICA DE CONVERSÃO (OC -> NOTA) ---
-        # Se as unidades forem diferentes, converte a Qtd da OC para a unidade da Nota
-        # para podermos comparar "bananas com bananas".
         und_nota = str(item.get('Und') or 'UN').strip().upper()
 
         if dados_item_oc and und_oc != und_nota:
-            # Tenta converter a quantidade PEDIDA para a unidade que veio na NOTA
             res_conv = self.products_repo.converter_unidades(
                 sku=sku_nota,
                 qtd=qtd_oc,
@@ -312,22 +312,11 @@ class RecebimentoRepo(BaseRepo):
         if oc_existe_erp and tem_sku:
             item_fora_da_oc = (dados_item_oc is None)
 
-        # --- CORREÇÃO DE TOLERÂNCIA AQUI ---
-        # 1. Tolerância para float (0.001) para compensar erros de divisão
         qtd_coletada = float(item.get('QtdColetada') or 0)
-
-        # Considera finalizado se faltar menos de 0.001
         finalizado = (qtd_coletada >= (qtd_nota - 0.001))
-
-        # Considera iniciado se tiver qualquer coisa (mesmo 0.0001)
         iniciado = (qtd_coletada > 0.001)
 
-        # Lógica de Divergência Física (Excedente no Recebimento vs Nota)
-        # Se coletou mais que a nota (com tolerância)
         div_excedente_fisico = (qtd_coletada > (qtd_nota + 0.001))
-
-        # Lógica de Divergência Fiscal (Nota vs Pedido)
-        # Mantive a lógica original, mas o nome div_excedente no original parecia ser (Nota > OC)
         div_excedente_fiscal = (qtd_nota > qtd_oc)
         eh_parcial_fiscal = (qtd_nota < qtd_oc)
 
@@ -343,8 +332,20 @@ class RecebimentoRepo(BaseRepo):
         div_preco_menor = (preco_nota < (preco_oc - delta_tol)) and (dados_item_oc is not None)
 
         eh_bonificacao = item.get('EhBonificacao')
-        dados_q = item.get('dados_qualidade') or item.get('DadosQualidade')
-        div_qualidade = (dados_q is not None and dados_q != '{}' and dados_q != {})
+        dados_q = item.get('dados_qualidade') or item.get('DadosQualidade') or {}
+        if isinstance(dados_q, str):
+            import json
+            try:
+                dados_q = json.loads(dados_q)
+            except:
+                dados_q = {}
+
+        div_qualidade = (
+                dados_q.get('embalagem_integra') == 'Não' or
+                dados_q.get('material_integro') == 'Não' or
+                dados_q.get('vencido') is True or
+                bool(item.get('DivergenciaVisual'))
+        )
 
         liberado = header_status not in [
             StatusPR.AGUARDANDO_LIBERACAO,
@@ -354,10 +355,6 @@ class RecebimentoRepo(BaseRepo):
             StatusPR.AGUARD_VINC_UNID
         ]
 
-        # Se tiver excesso físico, força status de decisão
-        if div_excedente_fisico:
-            return StatusPR.AGUARDANDO_DECISAO, "Quantidade física excede a Nota Fiscal"
-
         status_final = StatusPR.diagnosticar(
             tem_sku=tem_sku,
             unidade_valida=unidade_valida,
@@ -365,7 +362,7 @@ class RecebimentoRepo(BaseRepo):
             eh_bonificacao=eh_bonificacao,
             item_fora_da_oc=item_fora_da_oc,
             eh_parcial=eh_parcial_fiscal,
-            div_excedente=div_excedente_fiscal,
+            div_excedente=div_excedente_fiscal or div_excedente_fisico,
             div_preco_maior=div_preco_maior,
             div_preco_menor=div_preco_menor,
             div_qualidade=div_qualidade,
@@ -379,7 +376,7 @@ class RecebimentoRepo(BaseRepo):
             status=status_final,
             oc_existe=oc_existe_erp,
             item_fora_da_oc=item_fora_da_oc,
-            div_excedente=div_excedente_fiscal,
+            div_excedente=div_excedente_fiscal or div_excedente_fisico,
             div_preco_maior=div_preco_maior,
             div_preco_menor=div_preco_menor,
             tem_sku=tem_sku,
@@ -388,6 +385,9 @@ class RecebimentoRepo(BaseRepo):
             preco_oc=preco_oc,
             excedeu_tentativas=excedeu_tentativas
         )
+
+        if div_excedente_fisico and status_final == StatusPR.AGUARDANDO_DECISAO:
+            motivo_texto = "Quantidade física excede a Nota Fiscal"
 
         return status_final, motivo_texto
 
@@ -1000,20 +1000,35 @@ class RecebimentoRepo(BaseRepo):
             self.execute_non_query("UPDATE Recebimento SET DataFim=? WHERE PrCode=?", (agora_str, pr_code))
 
         self.execute_non_query(
-            f"UPDATE RecebimentoItens SET Status='{StatusPR.CONCLUIDO}', Qtd = QtdColetada WHERE PrCode=?",
+            f"UPDATE RecebimentoItens SET Status='{StatusPR.CONCLUIDO}' WHERE PrCode=?",
             (pr_code,)
         )
 
-    def incrementar_erro_contagem(self, item_id):
+    def incrementar_erro_contagem(self, item_id, qtd_errada=None, usuario="Sistema", ean_lido=None, lpn=None):
         # 1. Incrementa contador
         self.execute_non_query(
             "UPDATE RecebimentoItens SET TentativasErro = ISNULL(TentativasErro, 0) + 1 WHERE Id = ?", (item_id,))
 
-        # 2. Retorna o valor atualizado para a UI decidir
+        # Descobre qual é a tentativa atual
         res = self.execute_query("SELECT TentativasErro FROM RecebimentoItens WHERE Id = ?", (item_id,))
-        if res:
-            return int(res[0]['TentativasErro'])
-        return 1
+        tentativas = int(res[0]['TentativasErro']) if res else 1
+
+        # 2. Grava a tentativa falha na tabela de leituras com Estornado = 1
+        # A trava 'tentativas < 3' impede a criação de linha duplicada, pois a 3ª
+        # tentativa será gravada exclusivamente pela função registrar_erro_tentativa.
+        if qtd_errada is not None and tentativas < 3:
+            agora = datetime.now()
+            ean_final = ean_lido if ean_lido and str(ean_lido).strip() != "" else None
+            lpn_final = lpn if lpn and str(lpn).strip() != "" else None
+
+            query_log = "INSERT INTO RecebimentoLeituras " \
+                        "(RecebimentoItemId, Qtd, EanLido, Usuario, DataHora, Lpn, Estornado, DispositivoId) " \
+                        "VALUES (?, ?, ?, ?, ?, ?, 1, NULL)"
+
+            self.execute_non_query(query_log, (item_id, float(qtd_errada), ean_final, usuario, agora, lpn_final))
+
+        # 3. Retorna o valor atualizado para a UI decidir
+        return tentativas
 
     def registrar_erro_tentativa(self, pr_code, item_id, qtd_errada, usuario, obs_texto="", ean_lido=None, lpn=None):
         # 1. Prepara a data e a lista de comandos da transação atômica
@@ -1039,10 +1054,10 @@ class RecebimentoRepo(BaseRepo):
                 (item_id,)
             ))
 
-        # 3. Insere a leitura final que causou o bloqueio (AGORA COM EAN E LPN DINÂMICOS)
+        # 3. Insere a leitura final que causou o bloqueio
         cmds.append((
-            "INSERT INTO RecebimentoLeituras (RecebimentoItemId, Qtd, EanLido, Usuario, DataHora, DispositivoId, Lpn) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (item_id, float(qtd_errada), ean_final, usuario, agora, "MODAL_ERRO", lpn_final)
+            "INSERT INTO RecebimentoLeituras (RecebimentoItemId, Qtd, EanLido, Usuario, DataHora, DispositivoId, Lpn) VALUES (?, ?, ?, ?, ?, NULL, ?)",
+            (item_id, float(qtd_errada), ean_final, usuario, agora, lpn_final)
         ))
 
         # 4. Bloqueia o item para análise fiscal (Tentativa 3) e salva a quantidade
@@ -1222,7 +1237,7 @@ class RecebimentoRepo(BaseRepo):
 
         # Checa excesso com tolerância
         if nova_projecao_nota > (qtd_meta + 0.001):
-            # Verifica PR Irmão (Lógica de negócio mantida)
+            # Verifica PR Irmão
             pr_irmao = self._buscar_pr_irmao_pendente(item_alvo.get("Cnpj"), item_alvo["Sku"], pr_code)
             if pr_irmao:
                 return False, f"Limite atingido. Excedente vai para {pr_irmao}.", item_alvo, "ALERTA_IRMAO"
@@ -1231,6 +1246,14 @@ class RecebimentoRepo(BaseRepo):
             tentativas = int(item_alvo.get("TentativasErro") or 0) + 1
             self.execute_non_query("UPDATE RecebimentoItens SET TentativasErro=?, ConferenteUltimo=? WHERE Id=?",
                                    (tentativas, usuario, item_id))
+
+            # Grava a tentativa de excesso na tabela de leituras como estornada
+            agora = datetime.now()
+            query_excesso = "INSERT INTO RecebimentoLeituras " \
+                            "(RecebimentoItemId, Qtd, EanLido, Usuario, DataHora, Lpn, Estornado, DispositivoId) " \
+                            "VALUES (?, ?, ?, ?, ?, ?, 1, 'ERRO_EXCESSO')"
+
+            self.execute_non_query(query_excesso, (item_id, qtd_bip_base, codigo_limpo, usuario, agora, lpn_ref))
 
             msg = f"Excesso! Leu {qtd_bip_nota} {und_nota}, faltava {qtd_meta - qtd_acumulada_nota}. (Tentativa {tentativas}/3)"
             if tentativas >= 3:
@@ -1386,13 +1409,10 @@ class RecebimentoRepo(BaseRepo):
             self._fechar_sessao_ativa(pr_code, status_fim="Recontagem Solicitada",
                                       obs=f"Fiscal {usuario_fiscal} pediu recontagem.")
 
+
         elif decisao == 'ACEITAR_CONTAGEM':
-            sql = f"""
-                        UPDATE RecebimentoItens 
-                        SET Status='{StatusPR.CONCLUIDO}', ObsFiscal=?, AtualizadoPor=?, RowVersion=ISNULL(RowVersion, 0) + 1,
-                            Qtd = QtdColetada
-                        WHERE Id=?
-                    """
+
+            sql = f"UPDATE RecebimentoItens SET Status='{StatusPR.CONCLUIDO}', ObsFiscal=?, AtualizadoPor=?, RowVersion=ISNULL(RowVersion, 0) + 1 WHERE Id=?"
             obs = f"Divergência aceita por {usuario_fiscal} em {datetime.now().strftime('%d/%m/%Y %H:%M')}"
             self.execute_non_query(sql, (obs, usuario_fiscal, item_id))
             msg = "Divergência aceita. Item concluído."
@@ -1476,9 +1496,12 @@ class RecebimentoRepo(BaseRepo):
             "eh_parcial": dados_conferencia.get("eh_parcial", False)
         }
 
-        # Chama Helper (Reutilização!)
+        # Extrai a observação visual do dicionário
+        obs_visual = dados_conferencia.get("obs_visual")
+
+        # Chama Helper passando a observação visual
         cmds, novo_status = self._persistir_dados_conferencia(
-            item, qtd_final_nota, dados_qual, lpn_novo, cmds, usuario, agora
+            item, qtd_final_nota, dados_qual, lpn_novo, cmds, usuario, agora, obs_visual
         )
 
         # Atualiza LPN no Estoque (Replace/Insert)
@@ -1495,7 +1518,7 @@ class RecebimentoRepo(BaseRepo):
             return False, f"Erro ao salvar: {e}"
 
     def _persistir_dados_conferencia(self, item_alvo, qtd_final_nota, dados_qualidade,
-                                     lpn_ref, cmds_leitura, usuario, agora):
+                                     lpn_ref, cmds_leitura, usuario, agora, obs_visual=None):
         cmds = list(cmds_leitura)
         item_id = item_alvo['Id']
 
@@ -1509,9 +1532,14 @@ class RecebimentoRepo(BaseRepo):
         novo_status, _ = self._calcular_status_real_item(item_simulado, item_alvo.get('HeaderStatus'))
 
         # ==============================================================================
+        # TRAVA DE QUALIDADE
+        # Se o usuário relatou uma divergência visual, força obrigatoriamente para Análise
+        # ==============================================================================
+        if obs_visual and str(obs_visual).strip() != "":
+            novo_status = StatusPR.EM_ANALISE
+
+        # ==============================================================================
         # PREVENÇÃO DE ENCERRAMENTO PRECOCE
-        # Se foi apertado "Novo LPN" (eh_parcial = True), TRAVAMOS o item no status
-        # 'Em Conferência' para que a PR não suma da tela do usuário.
         # ==============================================================================
         eh_parcial = dados_qualidade.get("eh_parcial", False)
 
@@ -1520,8 +1548,6 @@ class RecebimentoRepo(BaseRepo):
         else:
             if novo_status == StatusPR.CONCLUIDO:
                 novo_status = StatusPR.AGUARDANDO_CONCLUSAO
-
-        # ==============================================================================
 
         def _fmt_status(val):
             if val is None: return None
@@ -1540,11 +1566,12 @@ class RecebimentoRepo(BaseRepo):
         is_vencido = dados_qualidade.get("vencido")
         status_venc = "Vencido" if is_vencido else "No prazo"
 
+        # ATUALIZAÇÃO: Coluna DivergenciaVisual adicionada na Query
         sql_item = """
             UPDATE RecebimentoItens 
             SET QtdColetada=?, UndConferencia=?, Status=?, DadosQualidade=?, 
                 ConferenteUltimo=?, DataUltimaBipagem=?, TentativasErro=?, RowVersion=RowVersion+1,
-                Lote=?, Val=?, Fab=?, Vencimento=?, IntEmb=?, IntMat=?, Identificacao=?, CertQual=?
+                Lote=?, Val=?, Fab=?, Vencimento=?, IntEmb=?, IntMat=?, Identificacao=?, CertQual=?, DivergenciaVisual=?
             WHERE Id=?
         """
 
@@ -1564,6 +1591,7 @@ class RecebimentoRepo(BaseRepo):
             int_mat,
             ident,
             cert_qual,
+            obs_visual,
             item_id
         )))
 
@@ -1661,18 +1689,15 @@ class RecebimentoRepo(BaseRepo):
         return True
 
     def recalcular_status_geral(self, pr_code, usuario="Sistema", auto_reparar=False):
-        # Busca dados atuais
         header = self.get_by_pr(pr_code)
         if not header: return None, None
 
         status_atual_banco = header.get('Status')
         obs_atual_banco = header.get('ObsFiscal')
 
-        # Carrega itens
         itens = self.list_itens_por_pr(pr_code)
         if not itens: return "Erro", "PR sem itens"
 
-        # --- BULK LOAD: EMBALAGENS E ALIAS ---
         skus_presentes = list({str(i['Sku']) for i in itens if i.get('Sku')})
         valid_units_map = {}
         if skus_presentes:
@@ -1693,7 +1718,6 @@ class RecebimentoRepo(BaseRepo):
             except Exception as e:
                 print(f"Erro ao carregar embalagens: {e}")
 
-        # Mapa de Alias
         alias_map = {}
         try:
             res_alias = self.execute_query("SELECT UXml, UInterna FROM UnidadesAlias")
@@ -1704,20 +1728,16 @@ class RecebimentoRepo(BaseRepo):
         except Exception as e:
             print(f"Erro ao carregar alias: {e}")
 
-        # --- 1. DIAGNÓSTICO DE ESTADO ---
-
-        # Lista para acumular correções de itens desatualizados (CORREÇÃO APLICADA)
         cmds_correcao_itens = []
 
         conferencia_iniciada = (status_atual_banco == StatusPR.EM_CONFERENCIA)
-        count_sem_unidade = 0
         tem_pendencia_vinculo = False
         tem_pendencia_unidade = False
         tem_problema_qualidade = False
         tem_divergencia_qtd = False
         tem_divergencia_financeira = False
+        tem_bloqueio_fiscal = False
 
-        # Variável chave para sua solicitação:
         todos_itens_conferidos = True
 
         for i in itens:
@@ -1737,70 +1757,50 @@ class RecebimentoRepo(BaseRepo):
                         match_via_alias = True
                 if not match_direto and not match_via_alias:
                     tem_pendencia_unidade = True
-                    count_sem_unidade += 1
                     i['StatusCalculado'] = StatusPR.AGUARD_VINC_UNID
 
             status_calculado = i.get('StatusCalculado')
             status_banco = i.get('Status')
 
             if status_calculado and status_banco != status_calculado:
-                # Proteção: Não alterar itens que já foram finalizados manualmente/fiscalmente
                 if status_banco not in [StatusPR.CONCLUIDO, StatusPR.CANCELADO]:
-                    # Adiciona comando para corrigir este item silenciosamente
                     cmds_correcao_itens.append(
                         (f"UPDATE RecebimentoItens SET Status = ? WHERE Id = ?", (status_calculado, i['Id'])))
-
-                    # Atualiza a memória para o resto da função usar o dado certo
                     i['Status'] = status_calculado
                     status_banco = status_calculado
-            # -----------------------------------------------------
 
             qtd_nota = float(i.get('Qtd', 0))
             qtd_coletada = float(i.get('QtdColetada', 0))
-            status_item = i.get('Status')  # Agora está atualizado
+            status_item = i.get('Status')
 
             if qtd_coletada > 0:
                 conferencia_iniciada = True
 
             # LÓGICA DE PROGRESSO: Verifica se a quantidade bate com a nota
             if abs(qtd_nota - qtd_coletada) > 0.001:
-                # Se não bate, só consideramos "conferido" se já estiver travado em decisão/bloqueio
-                if status_item in [StatusPR.AGUARDANDO_DECISAO, StatusPR.BLOQUEADO_FISCAL]:
-                    tem_divergencia_qtd = True
-                else:
-                    # Ainda falta conferir este item
+                if status_item not in [StatusPR.AGUARDANDO_DECISAO, StatusPR.BLOQUEADO_FISCAL, StatusPR.EM_ANALISE,
+                                       StatusPR.DIVERGENCIA]:
                     todos_itens_conferidos = False
-
-            div_visual_raw = i.get("DivergenciaVisual")
-            tem_div_visual = False
-
-            if div_visual_raw and i.get('Status') == StatusPR.EM_ANALISE:
-                tem_div_visual = True
-            # Outras verificações (Qualidade/Financeiro)
-            dados_qual = i.get('dados_qualidade', {})
-            if "Qualidade" in str(status_item) or tem_div_visual or status_item == StatusPR.EM_ANALISE or \
-                    dados_qual.get('embalagem_integra') == 'Não' or \
-                    dados_qual.get('material_integro') == 'Não' or \
-                    dados_qual.get('vencido', False):
-                tem_problema_qualidade = True
-
-            motivo_item = str(i.get('MotivoSistema', ''))
-            if "Preço" in motivo_item or status_item == StatusPR.DIVERGENCIA:
-                tem_divergencia_financeira = True
 
             if status_item in [StatusPR.AGUARDANDO_CONF, StatusPR.EM_CONFERENCIA, StatusPR.AGUARDANDO_VINCULO,
                                StatusPR.AGUARD_VINC_UNID]:
                 todos_itens_conferidos = False
 
-        # --- EXECUTA A CORREÇÃO DOS ITENS (Nova etapa) ---
+            # DEFINIÇÃO DE FLAGS BASEADA ESTRITAMENTE NO STATUS DO ITEM
+            if status_item == StatusPR.BLOQUEADO_FISCAL:
+                tem_bloqueio_fiscal = True
+            elif status_item == StatusPR.DIVERGENCIA:
+                tem_divergencia_financeira = True
+            elif status_item == StatusPR.EM_ANALISE:
+                tem_problema_qualidade = True
+            elif status_item == StatusPR.AGUARDANDO_DECISAO:
+                tem_divergencia_qtd = True
+
         if cmds_correcao_itens:
             try:
                 self.execute_transaction(cmds_correcao_itens)
             except Exception as e:
                 print(f"Aviso: Erro ao sincronizar status dos itens: {e}")
-        # -------------------------------------------------
-
-        # --- 2. MÁQUINA DE DECISÃO DE STATUS DO CABEÇALHO ---
 
         if status_atual_banco in [StatusPR.CANCELADO, StatusPR.RECUSADO]:
             return status_atual_banco, obs_atual_banco
@@ -1810,52 +1810,44 @@ class RecebimentoRepo(BaseRepo):
 
         # FASE 1: PREPARAÇÃO
         if not conferencia_iniciada and status_atual_banco != StatusPR.AGUARDANDO_CONCLUSAO:
-            if tem_pendencia_vinculo:
+            if tem_bloqueio_fiscal:
+                novo_status = StatusPR.BLOQUEADO_FISCAL
+            elif tem_pendencia_vinculo:
                 novo_status = StatusPR.AGUARDANDO_VINCULO
             elif tem_pendencia_unidade:
                 novo_status = StatusPR.AGUARD_VINC_UNID
             elif tem_divergencia_financeira:
                 novo_status = StatusPR.DIVERGENCIA
             else:
-                # Se não tem pendência, verificamos de onde a nota veio.
-                # Se já estava em processo (Em Conferência, Análise, etc), ela volta APENAS para Aguardando Conf.
                 if status_atual_banco in [StatusPR.PROCESSANDO, StatusPR.AGUARDANDO_LIBERACAO]:
                     novo_status = StatusPR.AGUARDANDO_LIBERACAO
                 else:
                     novo_status = StatusPR.AGUARDANDO_CONF
         # FASE 2: EXECUÇÃO
         else:
-            # 1º LUGAR NA PRIORIDADE: Trabalho não concluído!
-            # Se faltar bater a quantidade de qualquer item, a nota vai para a tela do operador.
             if not todos_itens_conferidos:
                 novo_status = StatusPR.EM_CONFERENCIA
-
-            # Só depois avalia os problemas que travam para o fiscal
+            elif tem_bloqueio_fiscal:
+                novo_status = StatusPR.BLOQUEADO_FISCAL
+            elif tem_divergencia_financeira:
+                novo_status = StatusPR.DIVERGENCIA
             elif tem_problema_qualidade:
                 novo_status = StatusPR.EM_ANALISE
             elif tem_divergencia_qtd:
                 novo_status = StatusPR.AGUARDANDO_DECISAO
-            elif tem_divergencia_financeira:
-                novo_status = StatusPR.DIVERGENCIA
             else:
                 novo_status = StatusPR.AGUARDANDO_CONCLUSAO
 
-        # --- 3. GERAÇÃO DO MOTIVO ---
         for i in itens:
             if i.get('StatusCalculado'): i['Status'] = i['StatusCalculado']
         novo_motivo = StatusPR.motivo_status_pr(novo_status, itens_header=itens)
 
-        # --- 4. PERSISTÊNCIA (ATUALIZADO) ---
         mudou_status = (status_atual_banco != novo_status)
-
-        # LÓGICA ATUALIZADA: DataFim não é preenchida aqui. Apenas na conclusão real (Status CONCLUIDO).
-        # Se a conferência física terminou (todos conferidos), apenas fechamos a sessão de tempo (KPI).
 
         if todos_itens_conferidos and conferencia_iniciada:
             self._fechar_sessao_ativa(pr_code, status_fim="Finalizado Físico")
 
         if mudou_status:
-            # Apenas muda status, sem tocar na data fim (DataFim fica NULL até a conclusão fiscal)
             query = """
                         UPDATE Recebimento 
                         SET Status = ?, ObsFiscal = ?, AtualizadoPor = ?, Alteracao = GETDATE(), RowVersion = RowVersion + 1 

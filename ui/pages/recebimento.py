@@ -709,7 +709,14 @@ class RecebimentoControlPanel(SaaSModal):
         list_frame.pack(fill="both", expand=True, pady=(0, 15))
 
         canvas = tk.Canvas(list_frame, bg="#F3F4F6", highlightthickness=0)
-        scrollbar = ttk.Scrollbar(list_frame, orient="vertical", command=canvas.yview)
+
+        # Estilo Minimalista para a Scrollbar
+        style_sb = ttk.Style()
+        style_sb.configure("Minimal.Vertical.TScrollbar", background="#E5E7EB", troughcolor="#F3F4F6", borderwidth=0,
+                           arrowsize=0)
+        scrollbar = ttk.Scrollbar(list_frame, orient="vertical", command=canvas.yview,
+                                  style="Minimal.Vertical.TScrollbar")
+
         scrollable_frame = tk.Frame(canvas, bg="#F3F4F6")
 
         scrollable_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
@@ -1441,7 +1448,7 @@ class RecebimentoControlPanel(SaaSModal):
 
         elif status_pr == StatusPR.CONCLUIDO:
             v_titulo = "RECEBIMENTO CONCLUÍDO"
-            v_msg = "Conferência finalizada. As quantidades batem com a nota fiscal."
+            v_msg = ""
 
         elif has_issue_fisico or has_issue_qual or has_issue_fin:
             v_nivel = "warning"
@@ -1841,7 +1848,9 @@ class RecebimentoPage(Page):
         cols_bottom = [
                           {"id": "Sku", "title": "SKU", "type": "text", "width": 110, "anchor": "w"},
                           {"id": "Descricao", "title": "Descrição", "type": "text", "width": 440, "anchor": "w"},
-                          {"id": "Qtd", "title": "Qtd", "type": "number", "width": 70, "anchor": "center"},
+                          {"id": "Qtd", "title": "Qtd Nota", "type": "number", "width": 80, "anchor": "center"},
+                          {"id": "QtdColetada", "title": "Qtd Recebida", "type": "number", "width": 90,
+                           "anchor": "center"},
                           {"id": "Und", "title": "Und", "type": "text", "width": 50, "anchor": "center"},
                           {"id": "Lote", "title": "Lote", "type": "text", "width": 150, "anchor": "w"},
                           {"id": "Fab", "title": "Fab", "type": "text", "width": 90, "anchor": "center"},
@@ -1981,7 +1990,6 @@ class RecebimentoPage(Page):
 
             status_real = row_view.get("Status")
 
-            # --- CORREÇÃO DE CHAVE: Busca 'obsfiscal' minúsculo ---
             motivo_fiscal = (row_view.get("ObsFiscal"))
 
             row_view["Status"] = RecebimentoWorkflow.get_status_label(status_real)

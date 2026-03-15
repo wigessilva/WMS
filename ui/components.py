@@ -5067,7 +5067,13 @@ class ConferenciaModal(SaaSModal):
 
             if diferenca > 0.001:
                 # ERRO NA CONTAGEM
-                tentativa_atual = recebimento_repo.incrementar_erro_contagem(item_atual["Id"])
+                tentativa_atual = recebimento_repo.incrementar_erro_contagem(
+                    item_id=item_atual["Id"],
+                    qtd_errada=qtd_digitada,
+                    usuario=usuario_atual,
+                    ean_lido=val_ean,
+                    lpn=self.current_lpn
+                )
 
                 if tentativa_atual < 3:
                     msg_erro = f"Quantidade total não confere com a nota. Tentativa {tentativa_atual}/3."
@@ -5081,15 +5087,42 @@ class ConferenciaModal(SaaSModal):
                                type="error")
                     obs_visual = getattr(self, "temp_desc_visual", "")
 
-                    # --- CORREÇÃO APLICADA AQUI ---
+                    # ====================================================================
+                    # CORREÇÃO DEFINITIVA: SALVAR O LPN ANTES DE BLOQUEAR O ITEM
+                    # Como a quantidade é menor, o sistema caía aqui e pulava o salvamento,
+                    # deixando o LPN vazio. Agora forçamos a gravação do LPN e de seus
+                    # respectivos Lote e Validade antes de aplicar o bloqueio fiscal.
+                    # ====================================================================
+                    recebimento_repo.salvar_item_conferencia(
+                        item_id=item_atual["Id"],
+                        dados_conferencia={
+                            "lpn": self.current_lpn,
+                            "ean_lido": val_ean,
+                            "lote": self.ent_lote.get(),
+                            "emb_integra": self.cb_emb.get(),
+                            "mat_integro": self.cb_mat.get(),
+                            "ident_correta": self.cb_id.get(),
+                            "fabricacao": self.ent_fab.get(),
+                            "tem_certificado": self.cb_cert.get(),
+                            "validade": self.ent_val.get(),
+                            "status_qual": self.cb_status.get(),
+                            "qtd": 0,
+                            "unidade": und_digitada,
+                            "usuario": usuario_atual,
+                            "obs_visual": obs_visual,
+                            "eh_parcial": False
+                        }
+                    )
+
+                    # Após o LPN estar salvo fisicamente, registra o erro no log e bloqueia
                     recebimento_repo.registrar_erro_tentativa(
                         self.pr_code,
                         item_atual["Id"],
                         qtd_total_acumulada,
-                        usuario_atual,  # Substituído 'usuario'
+                        usuario_atual,
                         obs_texto=obs_visual,
-                        ean_lido=val_ean,  # Substituído 'ean_digitado'
-                        lpn=self.current_lpn  # Substituído 'lpn_digitado'
+                        ean_lido=val_ean,
+                        lpn=self.current_lpn
                     )
 
                     self._houve_mudanca = True

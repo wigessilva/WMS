@@ -671,15 +671,6 @@ class LpnRepo(BaseRepo):
         except Exception as e:
             print(f"Erro ao sincronizar dados do LPN para o PR {pr_code}: {e}")
 
-        # Libera os LPNs atualizando o status para Armazenado
-        query_liberar = """
-            UPDATE Lpns 
-            SET Status = 'Armazenado', Alteracao = GETDATE()
-            WHERE PrRef = ? AND Status = 'Aguardando Armazenamento'
-        """
-        count = self.execute_non_query_count(query_liberar, (pr_code,))
-        print(f"Estoque: {count} LPNs liberados para o PR {pr_code}.")
-
 
 class AreasRepo(BaseRepo):
     def __init__(self):
