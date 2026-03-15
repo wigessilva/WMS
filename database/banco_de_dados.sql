@@ -231,7 +231,7 @@ END
 GO
 
 -- ============================================================================
--- TABELA LPNs [ATUALIZADA]
+-- TABELA LPNs
 -- ============================================================================
 IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[Lpns]') AND type in (N'U'))
 BEGIN
@@ -328,6 +328,7 @@ BEGIN
         DadosQualidade NVARCHAR(MAX),
         UndConferencia NVARCHAR(20),
         ObsFiscal NVARCHAR(MAX),
+        DivergenciaVisual NVARCHAR(MAX),
         Cadastro NVARCHAR(50),
         Alteracao NVARCHAR(50),
         CriadoPor NVARCHAR(100),

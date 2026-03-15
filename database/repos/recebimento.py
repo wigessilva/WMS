@@ -566,8 +566,8 @@ class RecebimentoRepo(BaseRepo):
         # --- BULK LOAD: LOTES (Busca lotes detalhados na tabela de LPNs) ---
         lotes_por_sku = {}
         try:
-            # Busca lotes distintos vinculados a este PR na tabela de LPNs
-            query_lotes = "SELECT Sku, Lote FROM Lpns WHERE PrRef = ? AND Lote IS NOT NULL AND Lote != ''"
+            # Busca lotes distintos vinculados a este PR na tabela de LPNs ignorando os LPNs Cancelados
+            query_lotes = "SELECT Sku, Lote FROM Lpns WHERE PrRef = ? AND Lote IS NOT NULL AND Lote != '' AND Status != 'Cancelado'"
             res_lotes = self.execute_query(query_lotes, (pr,))
 
             for row in res_lotes:
@@ -1000,7 +1000,7 @@ class RecebimentoRepo(BaseRepo):
             self.execute_non_query("UPDATE Recebimento SET DataFim=? WHERE PrCode=?", (agora_str, pr_code))
 
         self.execute_non_query(
-            f"UPDATE RecebimentoItens SET Status='{StatusPR.CONCLUIDO}' WHERE PrCode=?",
+            f"UPDATE RecebimentoItens SET Status='{StatusPR.CONCLUIDO}', Qtd = QtdColetada WHERE PrCode=?",
             (pr_code,)
         )
 
@@ -1015,19 +1015,49 @@ class RecebimentoRepo(BaseRepo):
             return int(res[0]['TentativasErro'])
         return 1
 
-    def registrar_erro_tentativa(self, pr_code, item_id, qtd_errada, usuario, obs_texto=""):
-        # Bloqueia o item para análise fiscal (Tentativa 3)
-        # Salva a quantidade errada para registro e muda status
-        query = """
-            UPDATE RecebimentoItens 
-            SET Status=?, QtdColetada=?, AtualizadoPor=?, Alteracao=GETDATE(), ObsFiscal=?
-            WHERE Id=?
-        """
+    def registrar_erro_tentativa(self, pr_code, item_id, qtd_errada, usuario, obs_texto="", ean_lido=None, lpn=None):
+        # 1. Prepara a data e a lista de comandos da transação atômica
+        agora = datetime.now()
+        cmds = []
+
+        # Tratamento do EAN: Se for vazio (ex: botão Sem GTIN), garante que envia NULL para o banco
+        ean_final = ean_lido if ean_lido and str(ean_lido).strip() != "" else None
+
+        # Tratamento do LPN: Se for vazio, garante que envia NULL
+        lpn_final = lpn if lpn and str(lpn).strip() != "" else None
+
+        # 2. Inativa leituras temporárias para evitar duplicidade na soma do saldo
+        # Se um LPN foi informado, inativamos as leituras daquele LPN. Senão, as soltas.
+        if lpn_final:
+            cmds.append((
+                "UPDATE RecebimentoLeituras SET Estornado=1 WHERE RecebimentoItemId=? AND Lpn=?",
+                (item_id, lpn_final)
+            ))
+        else:
+            cmds.append((
+                "UPDATE RecebimentoLeituras SET Estornado=1 WHERE RecebimentoItemId=? AND (Lpn IS NULL OR Lpn='')",
+                (item_id,)
+            ))
+
+        # 3. Insere a leitura final que causou o bloqueio (AGORA COM EAN E LPN DINÂMICOS)
+        cmds.append((
+            "INSERT INTO RecebimentoLeituras (RecebimentoItemId, Qtd, EanLido, Usuario, DataHora, DispositivoId, Lpn) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (item_id, float(qtd_errada), ean_final, usuario, agora, "MODAL_ERRO", lpn_final)
+        ))
+
+        # 4. Bloqueia o item para análise fiscal (Tentativa 3) e salva a quantidade
+        query_item = "UPDATE RecebimentoItens SET Status=?, QtdColetada=?, AtualizadoPor=?, Alteracao=?, ObsFiscal=? WHERE Id=?"
         obs_final = f"Bloqueio por excesso de tentativas (3). Obs: {obs_texto}"
 
-        self.execute_non_query(query, (StatusPR.BLOQUEADO_FISCAL, float(qtd_errada), usuario, obs_final, item_id))
+        cmds.append((
+            query_item,
+            (StatusPR.BLOQUEADO_FISCAL, float(qtd_errada), usuario, agora, obs_final, item_id)
+        ))
 
-        # Recalcula o status do PR (para ficar Em Análise/Bloqueado)
+        # 5. Executa tudo de uma vez atomicamente
+        self.execute_transaction(cmds)
+
+        # 6. Recalcula o status do PR
         self.recalcular_status_geral(pr_code, usuario)
 
     def verificar_progresso(self, pr):
@@ -1048,11 +1078,11 @@ class RecebimentoRepo(BaseRepo):
         except Exception as e:
             print(f"Aviso: Erro ao limpar LPNs no estorno: {e}")
 
-            # 3. Inativa Logs de Leitura (Auditoria preservada)
-            self.execute_non_query(
-                "UPDATE RecebimentoLeituras SET Estornado = 1 WHERE RecebimentoItemId IN (SELECT Id FROM RecebimentoItens WHERE PrCode = ?)",
-                (pr,)
-            )
+        # 3. Inativa Logs de Leitura (Auditoria preservada)
+        self.execute_non_query(
+            "UPDATE RecebimentoLeituras SET Estornado = 1 WHERE RecebimentoItemId IN (SELECT Id FROM RecebimentoItens WHERE PrCode = ?)",
+            (pr,)
+        )
 
         # 4. Reseta Cabeçalho (Agora APENAS limpa a ObsFiscal e o Status)
         sql_header = """
@@ -1291,44 +1321,83 @@ class RecebimentoRepo(BaseRepo):
         pr_code = item['PrCode']
 
         if decisao == 'RECONTAR':
-            # 1. INATIVA os logs em vez de apagar (Auditoria preservada!)
-            self.execute_non_query(
-                "UPDATE RecebimentoLeituras SET Estornado = 1 WHERE RecebimentoItemId = ?",
+            cmds = []
+
+            # 1. Descobre QUAIS LPNs foram gerados EXATAMENTE para este item específico
+            # Isso evita depender de SKUs que podem estar vazios ou duplicados
+            lpns_gerados = self.execute_query(
+                "SELECT DISTINCT Lpn FROM RecebimentoLeituras WHERE RecebimentoItemId = ? AND Lpn IS NOT NULL AND Lpn != ''",
                 (item_id,)
             )
+            lista_lpns = [r['Lpn'] for r in lpns_gerados if r['Lpn']]
 
-            # 2. Invalida os LPNs que foram criados para este item neste recebimento
-            try:
-                sql_lpn = "UPDATE Lpns SET Status='Cancelado', QtdAtual=0 WHERE PrRef = ? AND Sku = ?"
-                self.execute_non_query(sql_lpn, (pr_code, item['Sku']))
-            except:
-                pass
+            # 2. INATIVA os logs de leitura do item
+            cmds.append((
+                "UPDATE RecebimentoLeituras SET Estornado = 1 WHERE RecebimentoItemId = ?",
+                (item_id,)
+            ))
 
-            # 3. Reseta o item no banco (Zera a Qtd e Erros)
-            sql = f"""
-                        UPDATE RecebimentoItens 
-                        SET TentativasErro=0, QtdColetada=0, Status='{StatusPR.EM_CONFERENCIA}', ConferenteUltimo=NULL,
-                            DadosQualidade='{{}}', ObsFiscal=NULL, DivergenciaVisual=NULL
-                        WHERE Id=?
+            # 3. Invalida os LPNs exatos encontrados (Tira do Saldo Físico)
+            for lpn_code in lista_lpns:
+                cmds.append((
                     """
-            self.execute_non_query(sql, (item_id,))
+                    UPDATE Lpns 
+                    SET QtdAtual = 0, 
+                        Endereco = 'CANCELADOS',
+                        Status = 'Cancelado',
+                        Obs = 'Estornado via Reconferência',
+                        Alteracao = GETDATE()
+                    WHERE Lpn = ?
+                    """,
+                    (lpn_code,)
+                ))
+
+            # 4. Reseta TOTALMENTE o item no banco
+            sql_item = f"""
+                UPDATE RecebimentoItens 
+                SET TentativasErro=0, 
+                    QtdColetada=0, 
+                    Status='{StatusPR.AGUARDANDO_CONF}', 
+                    ConferenteUltimo=NULL,
+                    DadosQualidade='{{}}', 
+                    ObsFiscal=NULL, 
+                    DivergenciaVisual=NULL,
+                    DataUltimaBipagem=NULL,
+                    Lote=NULL, 
+                    Val=NULL, 
+                    Fab=NULL, 
+                    Vencimento=NULL,
+                    IntEmb=NULL, 
+                    IntMat=NULL, 
+                    Identificacao=NULL, 
+                    CertQual=NULL, 
+                    UndConferencia=NULL,
+                    RowVersion=ISNULL(RowVersion, 0) + 1
+                WHERE Id=?
+            """
+            cmds.append((sql_item, (item_id,)))
+
+            # Executa tudo em uma única transação atômica
+            self.execute_transaction(cmds)
+
             msg = "Item zerado e liberado para recontagem."
 
-            # ======== GATILHO DA RECONTAGEM ========
-            # O sistema fecha a sessão ativamente. Quando o operador bipar novamente,
-            # o iniciar_conferencia não achará sessão aberta e criará a 2ª Contagem.
-            self._fechar_sessao_ativa(pr_code, status_fim="Recontagem Solicitada", obs=f"Fiscal {usuario_fiscal} pediu recontagem.")
+            # Gatilho da recontagem para a tabela de sessões
+            self._fechar_sessao_ativa(pr_code, status_fim="Recontagem Solicitada",
+                                      obs=f"Fiscal {usuario_fiscal} pediu recontagem.")
 
         elif decisao == 'ACEITAR_CONTAGEM':
             sql = f"""
-                UPDATE RecebimentoItens 
-                SET Status='{StatusPR.CONCLUIDO}', ObsFiscal=?, AtualizadoPor=? 
-                WHERE Id=?
-            """
-            obs = f"Divergência aceita por {usuario_fiscal} em {datetime.now()}"
+                        UPDATE RecebimentoItens 
+                        SET Status='{StatusPR.CONCLUIDO}', ObsFiscal=?, AtualizadoPor=?, RowVersion=ISNULL(RowVersion, 0) + 1,
+                            Qtd = QtdColetada
+                        WHERE Id=?
+                    """
+            obs = f"Divergência aceita por {usuario_fiscal} em {datetime.now().strftime('%d/%m/%Y %H:%M')}"
             self.execute_non_query(sql, (obs, usuario_fiscal, item_id))
             msg = "Divergência aceita. Item concluído."
 
+        # A máquina de estados só roda DEPOIS que temos 100% de certeza que o banco zerou
         self.recalcular_status_geral(pr_code, usuario_fiscal)
 
         return True, msg
@@ -1748,22 +1817,28 @@ class RecebimentoRepo(BaseRepo):
             elif tem_divergencia_financeira:
                 novo_status = StatusPR.DIVERGENCIA
             else:
-                if status_atual_banco == StatusPR.AGUARDANDO_CONF:
-                    novo_status = StatusPR.AGUARDANDO_CONF
-                else:
+                # Se não tem pendência, verificamos de onde a nota veio.
+                # Se já estava em processo (Em Conferência, Análise, etc), ela volta APENAS para Aguardando Conf.
+                if status_atual_banco in [StatusPR.PROCESSANDO, StatusPR.AGUARDANDO_LIBERACAO]:
                     novo_status = StatusPR.AGUARDANDO_LIBERACAO
+                else:
+                    novo_status = StatusPR.AGUARDANDO_CONF
         # FASE 2: EXECUÇÃO
         else:
-            if tem_problema_qualidade:
+            # 1º LUGAR NA PRIORIDADE: Trabalho não concluído!
+            # Se faltar bater a quantidade de qualquer item, a nota vai para a tela do operador.
+            if not todos_itens_conferidos:
+                novo_status = StatusPR.EM_CONFERENCIA
+
+            # Só depois avalia os problemas que travam para o fiscal
+            elif tem_problema_qualidade:
                 novo_status = StatusPR.EM_ANALISE
             elif tem_divergencia_qtd:
                 novo_status = StatusPR.AGUARDANDO_DECISAO
             elif tem_divergencia_financeira:
                 novo_status = StatusPR.DIVERGENCIA
-            elif todos_itens_conferidos:
-                novo_status = StatusPR.AGUARDANDO_CONCLUSAO
             else:
-                novo_status = StatusPR.EM_CONFERENCIA
+                novo_status = StatusPR.AGUARDANDO_CONCLUSAO
 
         # --- 3. GERAÇÃO DO MOTIVO ---
         for i in itens:

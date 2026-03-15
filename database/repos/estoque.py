@@ -374,12 +374,11 @@ class LpnRepo(BaseRepo):
             if res[0]['Q'] == 0: return new_id
 
     def create_blank_lpn(self):
-        # Cria um "Cabeçalho" de LPN ou uma caixa vazia
         new_id = self.generate_id()
         query = """
                 INSERT INTO Lpns (Lpn, Origem, Sku, Descricao, Emb, Lote, Validade, Endereco, 
                                   QtdOriginal, QtdAtual, Status, Cadastro, CriadoPor, RowVersion)
-                VALUES (?, 'SISTEMA', '', 'Caixa Vazia', '-', '', NULL, '', 0, 0, 'Gerada', ?, 'Admin', 1)
+                VALUES (?, 'SISTEMA', '', '', '', '', NULL, '', 0, 0, 'Gerada', ?, 'Admin', 1)
             """
         self.execute_non_query(query, (new_id, datetime.now()))
         return new_id
@@ -653,13 +652,32 @@ class LpnRepo(BaseRepo):
             return False, str(e)
 
     def liberar_lpns_do_recebimento(self, pr_code):
+        # NOVO: Sincroniza as informações consolidadas da conferência (Lote, Validade, Fabricação)
+        # do Item para o LPN. Isso garante que, em recebimentos parciais ou divergentes,
+        # o LPN receba a informação correta antes de ir para o estoque.
+        query_sync = """
+            UPDATE L
+            SET L.Lote = I.Lote,
+                L.Validade = I.Val,
+                L.Fabricacao = I.Fab,
+                L.Descricao = I.Descricao,
+                L.Sku = I.Sku
+            FROM Lpns L
+            JOIN RecebimentoItens I ON L.PrRef = I.PrCode AND L.Sku = I.Sku
+            WHERE L.PrRef = ? AND L.Status = 'Aguardando Armazenamento'
+        """
+        try:
+            self.execute_non_query(query_sync, (pr_code,))
+        except Exception as e:
+            print(f"Erro ao sincronizar dados do LPN para o PR {pr_code}: {e}")
 
-        query = """
+        # Libera os LPNs atualizando o status para Armazenado
+        query_liberar = """
             UPDATE Lpns 
             SET Status = 'Armazenado', Alteracao = GETDATE()
             WHERE PrRef = ? AND Status = 'Aguardando Armazenamento'
         """
-        count = self.execute_non_query_count(query, (pr_code,))
+        count = self.execute_non_query_count(query_liberar, (pr_code,))
         print(f"Estoque: {count} LPNs liberados para o PR {pr_code}.")
 
 

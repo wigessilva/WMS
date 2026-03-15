@@ -617,8 +617,113 @@ class RecebimentoControlPanel(SaaSModal):
 
             return len(processed), processed
 
-        tbl = StandardTable(self.tab_frame, columns=cols, fetch_fn=_fetch_conf, page_size=12)
-        tbl.grid(row=0, column=0, sticky="nsew")
+        # Passamos checkboxes=True para habilitar a seleção múltipla
+        self.tbl_conferencia = StandardTable(self.tab_frame, columns=cols, fetch_fn=_fetch_conf, page_size=12,
+                                             checkboxes=True)
+        self.tbl_conferencia.grid(row=0, column=0, sticky="nsew")
+
+        # --- NOVO RODAPÉ DA ABA CONFERÊNCIA ---
+        footer_conf = tk.Frame(self.tab_frame, bg=Colors.BG_APP)
+        footer_conf.grid(row=1, column=0, sticky="ew", padx=20, pady=10)
+
+        # Mesma lógica de visibilidade que existia nas Ações
+        status_pr = self.header_data.get("Status")
+        itens = recebimento_repo.list_itens_por_pr(self.pr_code)
+        tem_coleta = any(float(i.get('QtdColetada', 0)) > 0 for i in itens)
+        pode_recontar = (
+                    (tem_coleta or status_pr == StatusPR.EM_CONFERENCIA) and status_pr not in [StatusPR.CONCLUIDO,
+                                                                                               StatusPR.CANCELADO])
+
+        if pode_recontar:
+            PillButton(footer_conf, text="Reconferência", variant="outline",
+                       icon=load_icon("refresh", 16), height=34,
+                       command=self._acao_recontar_selecionados).pack(side="right")
+
+    def _acao_recontar_selecionados(self):
+        # 1. Pega os itens marcados nos checkboxes
+        selecionados_raw = self.tbl_conferencia.get_all_selected()
+
+        if not selecionados_raw:
+            self.alert("Atenção", "Selecione pelo menos um item na tabela para solicitar a reconferência.",
+                       type="warning")
+            return
+
+        # 2. FILTRO INTELIGENTE: Ignora os itens que já estão totalmente zerados
+        selecionados = [i for i in selecionados_raw if float(i.get('QtdColetada', 0)) > 0 or i.get('Status') != StatusPR.AGUARDANDO_CONF]
+
+        if not selecionados:
+            self.alert("Aviso", "Já foi solicitada a reconferência dos itens selecionados", type="info")
+            return
+
+        # 3. Cria o Modal Customizado de Confirmação
+        modal = SaaSModal(self, title="Confirmar Reconferência Parcial", width=550, height=400)
+
+        frm = ttk.Frame(modal.content, style="Main.TFrame", padding=20)
+        frm.pack(fill="both", expand=True)
+
+        # Função interna que será executada ao confirmar
+        def _confirmar_e_zerar():
+            modal.close()
+
+            sucesso_total = True
+            for item in selecionados:
+                item_id = item.get("Id")
+                if item_id:
+                    # Executa a regra do backend para estornar o item
+                    suc, m = recebimento_repo.resolver_divergencia_item(item_id, 'RECONTAR', "PainelFiscal")
+                    if not suc:
+                        sucesso_total = False
+
+            # Feedback
+            if sucesso_total:
+                self.alert("Sucesso", "Os itens selecionados foram liberados para\nrecontagem.", type="info")
+            else:
+                self.alert("Aviso", "A ação foi concluída, mas alguns itens apresentaram erro de sistema.",
+                           type="warning")
+
+            # Atualiza a tela
+            self.header_data = recebimento_repo.get_by_pr(self.pr_code)
+            self._build_conferencia()
+            if self.on_close_callback:
+                self.on_close_callback()
+
+        # ==========================================
+        # BOTÕES ANCORADOS NO FUNDO
+        # ==========================================
+        btn_box = tk.Frame(frm, bg=Colors.BG_APP)
+        btn_box.pack(fill="x", side="bottom", pady=(15, 0))
+
+        # O 'Não' é empacotado primeiro para a direita.
+        # O 'Sim' é empacotado depois, ficando à esquerda do 'Não'.
+        PillButton(btn_box, text="Não", variant="outline", command=modal.close).pack(side="right")
+        PillButton(btn_box, text="Sim", variant="danger", command=_confirmar_e_zerar).pack(side="right", padx=(0, 10))
+
+        # ==========================================
+        # CONTEÚDO (Lista): Fica com o espaço que sobrar no meio
+        # ==========================================
+        tk.Label(frm, text="Deseja solicitar a reconferência dos itens abaixo?",
+                 font=("Segoe UI", 10, "bold"), bg=Colors.BG_APP).pack(anchor="w", pady=(0, 10))
+
+        # Lista de itens com barra de rolagem
+        list_frame = tk.Frame(frm, bg="#F3F4F6", bd=1, relief="solid")
+        list_frame.pack(fill="both", expand=True, pady=(0, 15))
+
+        canvas = tk.Canvas(list_frame, bg="#F3F4F6", highlightthickness=0)
+        scrollbar = ttk.Scrollbar(list_frame, orient="vertical", command=canvas.yview)
+        scrollable_frame = tk.Frame(canvas, bg="#F3F4F6")
+
+        scrollable_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        canvas.pack(side="left", fill="both", expand=True, padx=5, pady=5)
+        scrollbar.pack(side="right", fill="y")
+
+        # Preenche a lista com os SKUs selecionados
+        for item in selecionados:
+            txt = f"• {item.get('Sku', 'S/N')} - {item.get('Descricao', '')}"
+            tk.Label(scrollable_frame, text=txt, font=("Segoe UI", 9), bg="#F3F4F6",
+                     fg="#374151", wraplength=460, justify="left").pack(anchor="w", pady=3, padx=5)
 
     def _build_acoes(self):
         # Limpa o frame da aba
@@ -977,10 +1082,6 @@ class RecebimentoControlPanel(SaaSModal):
             # Conferência Ativa -> Permite Cancelar (Estornar)
             PillButton(footer, text="Estornar Conferência", variant="outline", icon=load_icon("cancel", 16),
                        height=34,
-                       command=self._acao_estornar_conferencia).pack(side="right", padx=(10, 0))
-
-        elif dados_dash["pode_recontar"]:
-            PillButton(footer, text="Reconferência", variant="outline", icon=load_icon("refresh", 16), height=34,
                        command=self._acao_estornar_conferencia).pack(side="right", padx=(10, 0))
 
         elif status_pr == StatusPR.AGUARDANDO_CONF:
@@ -1377,7 +1478,7 @@ class RecebimentoControlPanel(SaaSModal):
         if self.header_data.get("DataChegada"):
             historico.append({"hora": self.header_data["DataChegada"].split(" ")[-1], "desc": "Início"})
 
-        pode_recontar = ((tem_coleta or status_pr == StatusPR.EM_CONFERENCIA) and status_pr not in [StatusPR.CONCLUIDO, StatusPR.CANCELADO])
+        pode_recontar = (tem_coleta and status_pr not in [StatusPR.CONCLUIDO, StatusPR.CANCELADO])
 
         return {
             "veredito_nivel": v_nivel,
@@ -1602,7 +1703,7 @@ class RecebimentoControlPanel(SaaSModal):
         def _executar():
             sucesso, msg = recebimento_repo.executar_transicao(self.pr_code, "liberar_conferencia")
             if sucesso:
-                self.alert("Sucesso", f"O Recebimento foi liberado para conferência", type="info")
+                self.alert("Sucesso", f"O PR foi liberado para conferência", type="info")
 
                 # Atualiza dados locais e refresh da tela
                 self.header_data = recebimento_repo.get_by_pr(self.pr_code)

@@ -4275,7 +4275,6 @@ class ConferenciaModal(SaaSModal):
         for w in self.footer.winfo_children(): w.destroy()
 
         center_box = tk.Frame(self.main_container, bg=Colors.BG_APP)
-        # Ajustei o rely para 0.5 para a tela ficar bem centralizada com os novos botões
         center_box.place(relx=0.5, rely=0.5, anchor="center", relwidth=0.9)
 
         tk.Label(center_box, text="Bipe ou digite um NOVO LPN para iniciar.",
@@ -4305,7 +4304,7 @@ class ConferenciaModal(SaaSModal):
         item_id = self.items[self.current_idx]["Id"]
 
         # 1. Busca LPNs salvos no banco
-        sql_lpns = "SELECT Lpn FROM RecebimentoLeituras WHERE RecebimentoItemId=? AND Lpn IS NOT NULL GROUP BY Lpn ORDER BY MIN(DataHora)"
+        sql_lpns = "SELECT Lpn FROM RecebimentoLeituras WHERE RecebimentoItemId=? AND Lpn IS NOT NULL AND Estornado = 0 GROUP BY Lpn ORDER BY MIN(DataHora)"
         res_lpns = recebimento_repo.execute_query(sql_lpns, (item_id,))
         lpns_banco = [r['Lpn'] for r in res_lpns if r['Lpn']]
 
@@ -4620,7 +4619,7 @@ class ConferenciaModal(SaaSModal):
         item_id = item["Id"]
 
         # 1. Busca LPNs salvos no banco
-        sql_lpns = "SELECT Lpn FROM RecebimentoLeituras WHERE RecebimentoItemId=? AND Lpn IS NOT NULL GROUP BY Lpn ORDER BY MIN(DataHora)"
+        sql_lpns = "SELECT Lpn FROM RecebimentoLeituras WHERE RecebimentoItemId=? AND Lpn IS NOT NULL AND Estornado = 0 GROUP BY Lpn ORDER BY MIN(DataHora)"
         res_lpns = recebimento_repo.execute_query(sql_lpns, (item_id,))
         lpns_banco = [r['Lpn'] for r in res_lpns if r['Lpn']]
 
@@ -4978,6 +4977,7 @@ class ConferenciaModal(SaaSModal):
     def _save_and_action(self, action):
         val_ean = self.ent_ean.get().strip()
         val_qtd = self.ent_qtd.get().strip()
+        usuario_atual = getattr(self, "usuario_atual", "Conferente")
 
         # 1. Validações Básicas de Input
         if not val_qtd or Utils.safe_float(val_qtd) <= 0:
@@ -5039,7 +5039,6 @@ class ConferenciaModal(SaaSModal):
         item_fresco = next((i for i in itens_banco if i["Id"] == item_atual["Id"]), item_atual)
 
         qtd_ja_coletada = float(item_fresco.get("QtdColetada", 0))
-        qtd_lpn_antigo = 0
 
         # Desconta a quantidade caso o usuário esteja reeditando este mesmo LPN
         # (evita somar em duplicidade se ele corrigir a quantidade de um LPN atual)
@@ -5081,10 +5080,18 @@ class ConferenciaModal(SaaSModal):
                                "Item bloqueado para análise",
                                type="error")
                     obs_visual = getattr(self, "temp_desc_visual", "")
+
+                    # --- CORREÇÃO APLICADA AQUI ---
                     recebimento_repo.registrar_erro_tentativa(
-                        self.pr_code, item_atual["Id"], qtd_total_acumulada, "Conferente",
-                        obs_texto=obs_visual
+                        self.pr_code,
+                        item_atual["Id"],
+                        qtd_total_acumulada,
+                        usuario_atual,  # Substituído 'usuario'
+                        obs_texto=obs_visual,
+                        ean_lido=val_ean,  # Substituído 'ean_digitado'
+                        lpn=self.current_lpn  # Substituído 'lpn_digitado'
                     )
+
                     self._houve_mudanca = True
                     self.close()
                     return
@@ -5119,7 +5126,7 @@ class ConferenciaModal(SaaSModal):
                 "status_qual": self.cb_status.get(),
                 "qtd": qtd_digitada,
                 "unidade": und_digitada,
-                "usuario": getattr(self, "usuario_atual", "Conferente"),
+                "usuario": usuario_atual,
                 "obs_visual": getattr(self, "temp_desc_visual", ""),
                 "eh_parcial": (action == "new_lpn")
             }
@@ -5139,13 +5146,12 @@ class ConferenciaModal(SaaSModal):
         # ====================================================================
         if recebimento_repo.event_bus:
             pr_seguro = self.pr_code
-            usuario_seguro = getattr(self, "usuario_atual", "Conferente")
 
             recebimento_repo.event_bus.publish("pr_atualizado", {"pr": pr_seguro})
             if novo_status == StatusPR.CONCLUIDO:
                 recebimento_repo.event_bus.publish("recebimento_concluido", {
                     "pr": pr_seguro,
-                    "usuario": usuario_seguro,
+                    "usuario": usuario_atual,
                     "data_conclusao": datetime.now()
                 })
 
@@ -5156,7 +5162,6 @@ class ConferenciaModal(SaaSModal):
             if not self.winfo_exists():
                 return
 
-            # --- CORREÇÃO: Grava o LPN atual no cache de navegação ANTES de limpar a tela ---
             if hasattr(self, "_salvar_estado_temporario"):
                 self._salvar_estado_temporario()
 
@@ -5197,9 +5202,6 @@ class ConferenciaModal(SaaSModal):
                     self.close()
 
         except Exception:
-            # Se ocorrer um clique duplo e o Tkinter estourar "bad window path name",
-            # este bloco captura o erro silenciosamente e não trava o programa, pois
-            # a esta altura os itens e o status já foram salvos com segurança.
             pass
 
     def _decide_flow(self):
@@ -5275,7 +5277,7 @@ class ConferenciaModal(SaaSModal):
 
         # 1. Busca a QTD e o EAN exatos daquele LPN na tabela de Leituras
         # CORREÇÃO: Agora buscamos também o EanLido específico deste LPN
-        sql_leitura = "SELECT ISNULL(SUM(Qtd), 0) as Qtd, MAX(EanLido) as EanLido FROM RecebimentoLeituras WHERE RecebimentoItemId=? AND Lpn=?"
+        sql_leitura = "SELECT ISNULL(SUM(Qtd), 0) as Qtd, MAX(EanLido) as EanLido FROM RecebimentoLeituras WHERE RecebimentoItemId=? AND Lpn=? AND Estornado = 0"
         res_leitura = recebimento_repo.execute_query(sql_leitura, (item_id, self.current_lpn))
 
         qtd_base = float(res_leitura[0]['Qtd']) if res_leitura else 0.0
