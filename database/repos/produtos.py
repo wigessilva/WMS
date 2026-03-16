@@ -323,6 +323,10 @@ class ProductsRepo(BaseRepo):
         area_mode = kwargs.get("AreaPreferencialModo", "Herdar")
         val_min = kwargs.get("ValidadeMinimaDias")
         vida_util = kwargs.get("VidaUtil")
+        val_mode = kwargs.get("ValidadeModo", "Herdar")
+        lote_mode = kwargs.get("LoteModo", "Herdar")
+        giro_mode = kwargs.get("GiroModo", "Herdar")
+        var_consumo = kwargs.get("VariavelConsumo", "Herdar")
         b_vencido = kwargs.get("BlockVencido")
         b_semval = kwargs.get("BlockSemValidade")
         b_semlote = kwargs.get("BlockSemLote")
@@ -341,32 +345,32 @@ class ProductsRepo(BaseRepo):
         cmds = []
         agora = datetime.now()
 
-        query_prod = """
-                                    INSERT INTO Produtos (
-                                        Sku, Descricao, Ean, CodFornecedor, 
-                                        Familia, FamiliaId,
-                                        Unidade, UnidadeId,
-                                        Referencia, 
-                                        Cadastro, RowVersion, 
-                                        ValidadeModo, LoteModo, GiroModo, VariavelConsumo, ValidadeMinimaDias,
-                                        VidaUtil,
-                                        BlockVencido, BlockSemValidade, BlockSemLote, BlockRepQualidade,
-                                        Ativo, Bloqueado, MotivoBloqueio, ObsBloqueio,
-                                        CriadoPor, AtualizadoPor, AreaPreferencial, AreaPreferencialModo
-                                    )
-                                    VALUES (
-                                        ?, ?, ?, ?, 
-                                        ?, (SELECT Id FROM Familias WHERE Nome = ?),
-                                        ?, (SELECT Id FROM Unidades WHERE Sigla = ?),
-                                        ?, 
-                                        ?, 1, 
-                                        'Herdar', 'Herdar', 'Herdar', 'Herdar', ?,
-                                        ?,  -- <--- Apenas o placeholder do valor
-                                        ?, ?, ?, ?,
-                                        ?, ?, ?, ?,
-                                        ?, ?, ?, ?
-                                    )
-                                """
+        query_prod = (
+            "INSERT INTO Produtos (\n"
+            "    Sku, Descricao, Ean, CodFornecedor, \n"
+            "    Familia, FamiliaId,\n"
+            "    Unidade, UnidadeId,\n"
+            "    Referencia, \n"
+            "    Cadastro, RowVersion, \n"
+            "    ValidadeModo, LoteModo, GiroModo, VariavelConsumo, ValidadeMinimaDias,\n"
+            "    VidaUtil,\n"
+            "    BlockVencido, BlockSemValidade, BlockSemLote, BlockRepQualidade,\n"
+            "    Ativo, Bloqueado, MotivoBloqueio, ObsBloqueio,\n"
+            "    CriadoPor, AtualizadoPor, AreaPreferencial, AreaPreferencialModo\n"
+            ")\n"
+            "VALUES (\n"
+            "    ?, ?, ?, ?, \n"
+            "    ?, (SELECT Id FROM Familias WHERE Nome = ?),\n"
+            "    ?, (SELECT Id FROM Unidades WHERE Sigla = ?),\n"
+            "    ?, \n"
+            "    ?, 1, \n"
+            "    ?, ?, ?, ?, ?, \n"
+            "    ?, \n"
+            "    ?, ?, ?, ?, \n"
+            "    ?, ?, ?, ?, \n"
+            "    ?, ?, ?, ? \n"
+            ")"
+        )
 
         params_prod = (
             sku, descricao, ean, cod_fornecedor,
@@ -374,6 +378,10 @@ class ProductsRepo(BaseRepo):
             unidade, unidade,
             referencia,
             agora,
+
+            # As 4 variáveis das políticas entram aqui, substituindo os antigos 'Herdar'
+            val_mode, lote_mode, giro_mode, var_consumo,
+
             val_min,
             vida_util,
             b_vencido, b_semval, b_semlote, b_qualidade,
@@ -461,10 +469,17 @@ class ProductsRepo(BaseRepo):
         var_consumo = kwargs.get("VariavelConsumo")
         val_min = kwargs.get("ValidadeMinimaDias")
         vida_util = kwargs.get("VidaUtil")
-        b_vencido = bool(kwargs.get("BlockVencido"))
-        b_semval = bool(kwargs.get("BlockSemValidade"))
-        b_semlote = bool(kwargs.get("BlockSemLote"))
-        b_qualidade = bool(kwargs.get("BlockRepQualidade"))
+        b_vencido = kwargs.get("BlockVencido")
+        b_vencido = bool(b_vencido) if b_vencido is not None else None
+
+        b_semval = kwargs.get("BlockSemValidade")
+        b_semval = bool(b_semval) if b_semval is not None else None
+
+        b_semlote = kwargs.get("BlockSemLote")
+        b_semlote = bool(b_semlote) if b_semlote is not None else None
+
+        b_qualidade = kwargs.get("BlockRepQualidade")
+        b_qualidade = bool(b_qualidade) if b_qualidade is not None else None
 
         # Status
         ativo = bool(kwargs.get("Ativo", True))
@@ -671,17 +686,20 @@ class ProductsRepo(BaseRepo):
 
         row = dict(res[0])
 
-        # Busca Embalagens
-        sql_emb = """
-                    SELECT 
-                        Id, Ean, Unidade, FatorConversao, Tipo,
-                        Largura, LarguraUn, Altura, AlturaUn,
-                        Comprimento, ComprimentoUn, PesoBruto,
-                        EhPadrao, CriadoPor, Cadastro,
-                        AtualizadoPor, Alteracao
-                    FROM ProdutoEmbalagens 
-                    WHERE ProdutoId = ?
-                """
+        # Consulta principal das embalagens ordenada pela unidade base e fator de conversao
+        sql_emb = (
+            "SELECT "
+            "    Id, Ean, Unidade, FatorConversao, Tipo, "
+            "    Largura, LarguraUn, Altura, AlturaUn, "
+            "    Comprimento, ComprimentoUn, PesoBruto, "
+            "    EhPadrao, CriadoPor, Cadastro, "
+            "    AtualizadoPor, Alteracao "
+            "FROM ProdutoEmbalagens "
+            "WHERE ProdutoId = ? "
+            "ORDER BY "
+            "    CASE WHEN UPPER(Tipo) = 'BASE' THEN 0 ELSE 1 END ASC, "
+            "    FatorConversao ASC"
+        )
         embalagens = self.execute_query(sql_emb, (row['Id'],))
 
         # Tratamento de dados (Limpeza)
@@ -813,8 +831,15 @@ class ProductsRepo(BaseRepo):
         return None, None
 
     def _get_camadas_helper(self, produto_id):
-        # Método auxiliar para evitar repetição de código SQL
-        sql = "SELECT Ean, Unidade, FatorConversao, Tipo FROM ProdutoEmbalagens WHERE ProdutoId = ?"
+        # Metodo auxiliar para evitar repeticao de codigo SQL ja com a ordenacao aplicada
+        sql = (
+            "SELECT Ean, Unidade, FatorConversao, Tipo "
+            "FROM ProdutoEmbalagens "
+            "WHERE ProdutoId = ? "
+            "ORDER BY "
+            "    CASE WHEN UPPER(Tipo) = 'BASE' THEN 0 ELSE 1 END ASC, "
+            "    FatorConversao ASC"
+        )
         return [dict(e) for e in self.execute_query(sql, (produto_id,))]
 
     # --- CONVERSOR UNIVERSAL INTELIGENTE (COM ALIAS) ---

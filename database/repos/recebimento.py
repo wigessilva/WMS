@@ -244,18 +244,25 @@ class RecebimentoRepo(BaseRepo):
         # pula o recálculo de divergências e preserva a decisão do sistema.
         # ==============================================================================
         status_banco = item.get('Status')
-        status_finais = [
+        status_finais_item = [
             StatusPR.CONCLUIDO,
             StatusPR.CANCELADO,
             StatusPR.RECUSADO,
             StatusPR.BLOQUEADO_FISCAL,
-            StatusPR.AGUARDANDO_DECISAO
         ]
 
-        if status_banco in status_finais:
+        if status_banco in status_finais_item:
             return status_banco, item.get('ObsFiscal') or ""
 
-        if header_status in status_finais:
+        # O cabecalho so deve forcar o status dos itens se for um encerramento global
+        # Bloqueios e divergencias sao individuais e nao devem contaminar os itens corretos
+        status_finais_header = [
+            StatusPR.CONCLUIDO,
+            StatusPR.CANCELADO,
+            StatusPR.RECUSADO
+        ]
+
+        if header_status in status_finais_header:
             return header_status, ""
 
         # ==============================================================================
@@ -301,8 +308,12 @@ class RecebimentoRepo(BaseRepo):
             )
             if res_conv['sucesso']:
                 qtd_oc = res_conv['qtd_convertida']
-                if res_conv['fator'] > 0:
-                    preco_oc = preco_oc / res_conv['fator']
+
+                # Calcula o fator de conversão efetivo entre as duas unidades
+                fator_efetivo = res_conv['fator_origem'] / res_conv['fator_destino']
+
+                if fator_efetivo > 0:
+                    preco_oc = preco_oc / fator_efetivo
 
         tentativas = int(item.get('TentativasErro') or 0)
         excedeu_tentativas = (tentativas >= StatusPR.LIMITE_TENTATIVAS)
@@ -352,7 +363,9 @@ class RecebimentoRepo(BaseRepo):
             StatusPR.BLOQUEADO_FISCAL,
             StatusPR.DIVERGENCIA,
             StatusPR.AGUARDANDO_VINCULO,
-            StatusPR.AGUARD_VINC_UNID
+            StatusPR.AGUARD_VINC_UNID,
+            StatusPR.AGUARDANDO_DECISAO,
+            StatusPR.EM_ANALISE
         ]
 
         status_final = StatusPR.diagnosticar(
@@ -1751,14 +1764,22 @@ class RecebimentoRepo(BaseRepo):
                 unidades_deste_sku = valid_units_map.get(sku_item, set())
                 match_direto = und_item in unidades_deste_sku
                 match_via_alias = False
+
                 if not match_direto:
                     traducao = alias_map.get(und_item)
                     if traducao and traducao in unidades_deste_sku:
                         match_via_alias = True
+
                 if not match_direto and not match_via_alias:
                     tem_pendencia_unidade = True
-                    i['StatusCalculado'] = StatusPR.AGUARD_VINC_UNID
 
+                    # Protege status criticos para nao serem reescritos por uma pendencia de unidade
+                    status_bloqueantes = [StatusPR.AGUARDANDO_DECISAO, StatusPR.BLOQUEADO_FISCAL, StatusPR.DIVERGENCIA,
+                                          StatusPR.EM_ANALISE]
+                    if i.get('StatusCalculado') not in status_bloqueantes:
+                        i['StatusCalculado'] = StatusPR.AGUARD_VINC_UNID
+
+            # ATENCAO: Estas linhas devem estar alinhadas com o 'if sku_item:' (fora dele)
             status_calculado = i.get('StatusCalculado')
             status_banco = i.get('Status')
 
@@ -1767,7 +1788,6 @@ class RecebimentoRepo(BaseRepo):
                     cmds_correcao_itens.append(
                         (f"UPDATE RecebimentoItens SET Status = ? WHERE Id = ?", (status_calculado, i['Id'])))
                     i['Status'] = status_calculado
-                    status_banco = status_calculado
 
             qtd_nota = float(i.get('Qtd', 0))
             qtd_coletada = float(i.get('QtdColetada', 0))
@@ -1776,7 +1796,7 @@ class RecebimentoRepo(BaseRepo):
             if qtd_coletada > 0:
                 conferencia_iniciada = True
 
-            # LÓGICA DE PROGRESSO: Verifica se a quantidade bate com a nota
+            # LOGICA DE PROGRESSO: Verifica se a quantidade bate com a nota
             if abs(qtd_nota - qtd_coletada) > 0.001:
                 if status_item not in [StatusPR.AGUARDANDO_DECISAO, StatusPR.BLOQUEADO_FISCAL, StatusPR.EM_ANALISE,
                                        StatusPR.DIVERGENCIA]:
@@ -1786,7 +1806,7 @@ class RecebimentoRepo(BaseRepo):
                                StatusPR.AGUARD_VINC_UNID]:
                 todos_itens_conferidos = False
 
-            # DEFINIÇÃO DE FLAGS BASEADA ESTRITAMENTE NO STATUS DO ITEM
+            # DEFINICAO DE FLAGS BASEADA ESTRITAMENTE NO STATUS DO ITEM
             if status_item == StatusPR.BLOQUEADO_FISCAL:
                 tem_bloqueio_fiscal = True
             elif status_item == StatusPR.DIVERGENCIA:
@@ -1812,13 +1832,18 @@ class RecebimentoRepo(BaseRepo):
         if not conferencia_iniciada and status_atual_banco != StatusPR.AGUARDANDO_CONCLUSAO:
             if tem_bloqueio_fiscal:
                 novo_status = StatusPR.BLOQUEADO_FISCAL
+            elif tem_divergencia_financeira:
+                novo_status = StatusPR.DIVERGENCIA
+            elif tem_problema_qualidade:
+                novo_status = StatusPR.EM_ANALISE
+            elif tem_divergencia_qtd:
+                novo_status = StatusPR.AGUARDANDO_DECISAO
             elif tem_pendencia_vinculo:
                 novo_status = StatusPR.AGUARDANDO_VINCULO
             elif tem_pendencia_unidade:
                 novo_status = StatusPR.AGUARD_VINC_UNID
-            elif tem_divergencia_financeira:
-                novo_status = StatusPR.DIVERGENCIA
             else:
+                # Restaura a regra vital que mantém a nota aguardando o fiscal
                 if status_atual_banco in [StatusPR.PROCESSANDO, StatusPR.AGUARDANDO_LIBERACAO]:
                     novo_status = StatusPR.AGUARDANDO_LIBERACAO
                 else:

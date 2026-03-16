@@ -1246,7 +1246,11 @@ class RecebimentoControlPanel(SaaSModal):
                         else:
                             txt = f"{sku}: Esperado: {q_nota:g} {unid} (Nota) | {q_oc:g} {unid} (OC)"
 
-                        fisico_ui.append({"text": txt, "color": COR_PRETO})
+                        cor_fisico = COR_PRETO
+                        if abs(q_nota - q_oc) > 0.001:
+                            cor_fisico = COR_AMARELO
+
+                        fisico_ui.append({"text": txt, "color": cor_fisico})
 
                 if itens_sem_vinculo:
                     qtd = len(itens_sem_vinculo)
@@ -1327,19 +1331,18 @@ class RecebimentoControlPanel(SaaSModal):
                     # Atribuição de Cores baseada na diferença
 
                     if diff < -0.001:
-
                         fisico_ui.append({"text": txt, "color": COR_VERMELHO})
-
                     elif diff > 0.001:
-
                         fisico_ui.append({"text": txt, "color": COR_AMARELO})
-
+                    elif abs(q_nota - q_oc) > 0.001:
+                        # Se não há erro de conferência, mas a NF difere da OC, dispara o alerta
+                        fisico_ui.append({"text": txt, "color": COR_AMARELO})
                     else:
-
                         # Só fica verde se já tiver conferido tudo
-
                         if q_conf > 0 or eh_status_final:
                             fisico_ui.append({"text": txt, "color": COR_VERDE})
+                        else:
+                            fisico_ui.append({"text": txt, "color": COR_PRETO})
 
                 hoje = datetime.now()
                 for item in itens:
