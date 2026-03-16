@@ -1453,6 +1453,44 @@ class RecebimentoRepo(BaseRepo):
         if not prod: return False, "Produto não cadastrado."
         und_base = prod['Unidade']
 
+        # ==============================================================================
+        # VALIDAÇÃO DE POLÍTICAS (Lote e Validade)
+        # Verifica a hierarquia: Produto -> Família -> Global
+        # ==============================================================================
+        if qtd_digitada > 0:
+            g_val = getattr(self.global_policies, 'modo_validade', 'Validade opcional')
+            g_lote = getattr(self.global_policies, 'modo_lote', 'Lote opcional')
+
+            fam_name = prod.get('Familia')
+            fam_row = {}
+            if fam_name:
+                res_fam = self.execute_query("SELECT ValidadeModo, LoteModo FROM Familias WHERE Nome = ?", (fam_name,))
+                if res_fam: fam_row = res_fam[0]
+
+            p_val = prod.get('ValidadeModo')
+            if not p_val or p_val in ("Herdar", "None"):
+                f_val = fam_row.get('ValidadeModo')
+                regra_validade = f_val if (f_val and f_val not in ("Herdar", "None")) else g_val
+            else:
+                regra_validade = p_val
+
+            p_lote = prod.get('LoteModo')
+            if not p_lote or p_lote in ("Herdar", "None"):
+                f_lote = fam_row.get('LoteModo')
+                regra_lote = f_lote if (f_lote and f_lote not in ("Herdar", "None")) else g_lote
+            else:
+                regra_lote = p_lote
+
+            lote_informado = str(dados_conferencia.get("lote") or "").strip()
+            validade_informada = str(dados_conferencia.get("validade") or "").strip()
+
+            if regra_lote == "Lote obrigatório" and not lote_informado:
+                return False, f"O Lote é obrigatório para este produto."
+
+            if regra_validade == "Validade obrigatória" and not validade_informada:
+                return False, f"A Validade é obrigatória para este produto."
+        # ==============================================================================
+
         # A: Modal -> Base (Para o LPN/Estoque)
         res_base = self.products_repo.converter_unidades(sku, qtd_digitada, und_selecionada, und_base)
         if not res_base['sucesso']: return False, res_base['erro']
@@ -1844,7 +1882,8 @@ class RecebimentoRepo(BaseRepo):
                 novo_status = StatusPR.AGUARD_VINC_UNID
             else:
                 # Restaura a regra vital que mantém a nota aguardando o fiscal
-                if status_atual_banco in [StatusPR.PROCESSANDO, StatusPR.AGUARDANDO_LIBERACAO]:
+                if status_atual_banco in [StatusPR.PROCESSANDO, StatusPR.AGUARDANDO_LIBERACAO,
+                                          StatusPR.AGUARD_VINC_UNID, StatusPR.AGUARDANDO_VINCULO]:
                     novo_status = StatusPR.AGUARDANDO_LIBERACAO
                 else:
                     novo_status = StatusPR.AGUARDANDO_CONF

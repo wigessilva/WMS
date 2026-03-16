@@ -1,5 +1,6 @@
 import tkinter as tk
 from tkinter import ttk
+from datetime import datetime
 
 from database.repositories import areas_repo
 # --- 5. Repositórios (recebimento_repo) ---
@@ -1632,12 +1633,28 @@ class LpnPage(Page):
 
                 origem_val = r.get("Origem") or r.get("PrRef") or "-"
 
+                # Pega a data bruta do banco e tenta formatar para DD/MM/AAAA
+                val_raw = r.get("Validade")
+                val_formatada = "-"
+                if val_raw:
+                    try:
+                        # Se já for objeto datetime
+                        if hasattr(val_raw, "strftime"):
+                            val_formatada = val_raw.strftime("%d/%m/%Y")
+                        else:
+                            # Se for string vinda do banco (ex: "2026-10-21 00:00:00.000")
+                            val_str = str(val_raw).split()[0]  # Pega só a data
+                            val_formatada = datetime.fromisoformat(val_str).strftime("%d/%m/%Y")
+                    except:
+                        val_formatada = str(val_raw).split()[0]  # Fallback de segurança
+
                 cp = {
                     "Lpn": r.get("Lpn"),
                     "Origem": origem_val,
                     "Sku": r.get("Sku"),
                     "Descricao": prod.get("Descricao", "-"),
                     "Lote": r.get("Lote", "-"),
+                    "Validade": val_formatada,  # << ADICIONAR ESTA LINHA
                     "Local": r.get("Endereco", "-"),
                     "Saldo": qtd_show,
                     "Unidade": und_prod,

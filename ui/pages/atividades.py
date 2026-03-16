@@ -61,8 +61,9 @@ class AtividadesPage(Page):
 
         if action_type == "main":
             def _ao_fechar_modal(precisa_atualizar):
-                if precisa_atualizar:
-                    self.refresh_cards()
+                # Ignora a flag precisa_atualizar. Ao abrir e fechar a conferencia,
+                # o status da sessão muda para "Iniciando...", exigindo refresh obrigatorio.
+                self.refresh_cards()
 
             ConferenciaModal(self, pr_code=pr, on_close=_ao_fechar_modal)
 

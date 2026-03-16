@@ -5166,7 +5166,7 @@ class ConferenciaModal(SaaSModal):
         )
 
         if not sucesso:
-            self.alert("Erro", f"Falha ao salvar dados: {msg}", type="error")
+            self.alert("Erro", f"Falha ao salvar dados:\n{msg}", type="error")
             return
 
         novo_status, _ = recebimento_repo.recalcular_status_geral(self.pr_code)
