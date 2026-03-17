@@ -4763,8 +4763,7 @@ class ConferenciaModal(SaaSModal):
             l_prod = prod_db.get("LoteModo")
             if l_prod and l_prod not in ("Herdar", "None"): eff_lote = l_prod
 
-        placeholder_lote = "Opcional" if eff_lote == "Lote opcional" else ""
-        self.ent_lote = TextField(c2, height=34, placeholder=placeholder_lote)
+        self.ent_lote = TextField(c2, height=34, placeholder="")
         self.ent_lote.pack(fill="x")
 
         # --- LINHA 2: QUALIDADE ---

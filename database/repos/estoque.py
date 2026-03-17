@@ -377,8 +377,8 @@ class LpnRepo(BaseRepo):
         new_id = self.generate_id()
         query = """
                 INSERT INTO Lpns (Lpn, Origem, Sku, Descricao, Emb, Lote, Validade, Endereco, 
-                                  QtdOriginal, QtdAtual, Status, Cadastro, CriadoPor, RowVersion)
-                VALUES (?, 'SISTEMA', '', '', '', '', NULL, '', 0, 0, 'Gerada', ?, 'Admin', 1)
+                                  QtdOriginal, QtdAtual, Estado, Status, Cadastro, CriadoPor, RowVersion)
+                VALUES (?, 'SISTEMA', '', '', '', '', NULL, '', 0, 0, 'Bom', 'Gerada', ?, 'Admin', 1)
             """
         self.execute_non_query(query, (new_id, datetime.now()))
         return new_id
@@ -389,7 +389,7 @@ class LpnRepo(BaseRepo):
         endereco_atual = res[0]['Endereco']
         status_atual = res[0]['Status']
 
-        query = """INSERT INTO Lpns (Lpn, Sku, Descricao, QtdOriginal, QtdAtual, Lote, Validade, Endereco, Status, Cadastro, CriadoPor, RowVersion) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Admin', 1)"""
+        query = """INSERT INTO Lpns (Lpn, Sku, Descricao, QtdOriginal, QtdAtual, Lote, Validade, Endereco, Estado, Status, Cadastro, CriadoPor, RowVersion) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Bom', ?, ?, 'Admin', 1)"""
         self.execute_non_query(query, (
         lpn_code, sku, descricao, qtd, qtd, lote, validade, endereco_atual, status_atual, datetime.now()))
 
@@ -442,12 +442,11 @@ class LpnRepo(BaseRepo):
         else:
             # INSERT: Cria novo LPN
             sql = """
-                INSERT INTO Lpns (Lpn, Sku, Descricao, QtdOriginal, QtdAtual, Status, 
-                                  Lote, Validade, Endereco, PrRef, Origem, CriadoPor, Cadastro, RowVersion)
-                VALUES (?, ?, ?, ?, ?, 'Aguardando Armazenamento', 
-                        ?, ?, 'RECEBIMENTO', ?, ?, ?, ?, 1)
-            """
-            # Nota: Usamos pr_ref no campo 'Origem' para rastrear de qual Recebimento veio
+                            INSERT INTO Lpns (Lpn, Sku, Descricao, QtdOriginal, QtdAtual, Estado, Status, 
+                                              Lote, Validade, Endereco, PrRef, Origem, CriadoPor, Cadastro, RowVersion)
+                            VALUES (?, ?, ?, ?, ?, 'Bom', 'Aguardando Armazenamento', 
+                                    ?, ?, 'RECEBIMENTO', ?, ?, ?, ?, 1)
+                        """
             params = (lpn_code, sku, desc, float(qtd), float(qtd), lote, validade, pr_ref, pr_ref, usuario, data_hora)
             cmds.append((sql, params))
 
@@ -591,21 +590,22 @@ class LpnRepo(BaseRepo):
 
         mov_repo = MovementsRepo()
 
+        estado_novo = orig.get('Estado', 'Bom')  # Captura o estado original
+
         try:
             # A. Cria o Novo LPN (INSERT)
-            # Adicionei o campo Fabricacao (se existir no banco)
             query_insert = """
-                INSERT INTO Lpns (Lpn, Sku, Descricao, QtdOriginal, QtdAtual, Lote, Fabricacao, Validade, 
-                                  Endereco, PrRef, Status, CriadoPor, Cadastro, Origem, RowVersion)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
-            """
+                        INSERT INTO Lpns (Lpn, Sku, Descricao, QtdOriginal, QtdAtual, Lote, Fabricacao, Validade, 
+                                          Endereco, PrRef, Estado, Status, CriadoPor, Cadastro, Origem, RowVersion)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+                    """
             agora = datetime.now()
             origem_novo = f"SPLIT-{lpn_origem}"
 
             self.execute_non_query(query_insert, (
                 novo_lpn_code, orig['Sku'], orig['Descricao'], qtd_separar, qtd_separar,
                 lote_final, fab_final, val_final, orig['Endereco'], orig['PrRef'],
-                status_novo, usuario, agora, origem_novo
+                estado_novo, status_novo, usuario, agora, origem_novo
             ))
 
             # B. Subtrai do LPN Original (UPDATE ATÔMICO)

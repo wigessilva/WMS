@@ -250,6 +250,7 @@ BEGIN
         QtdOriginal FLOAT,
         QtdAtual FLOAT,
         Unidade NVARCHAR(20),
+        Estado NVARCHAR(50),
         Status NVARCHAR(50),
         Obs NVARCHAR(500),
         Cadastro DATETIME DEFAULT GETDATE(),
