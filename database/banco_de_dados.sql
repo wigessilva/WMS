@@ -15,6 +15,46 @@ GO
 -- MÓDULO: CADASTROS BÁSICOS
 -- ============================================================================
 
+-- Tabela de Perfis
+IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[Perfis]') AND type in (N'U'))
+BEGIN
+    CREATE TABLE Perfis (
+        Id INT IDENTITY(1,1) PRIMARY KEY,
+        Nome NVARCHAR(50) NOT NULL UNIQUE,
+        Descricao NVARCHAR(200),
+        Permissoes NVARCHAR(MAX),
+        Ativo BIT DEFAULT 1,
+        DataCriacao DATETIME DEFAULT GETDATE()
+    );
+END
+GO
+
+-- Tabela de Usuários
+IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[Usuarios]') AND type in (N'U'))
+BEGIN
+    CREATE TABLE Usuarios (
+        Id INT IDENTITY(1,1) PRIMARY KEY,
+        PerfilId INT NOT NULL,
+        Nome NVARCHAR(100) NOT NULL,
+        Login NVARCHAR(50) NOT NULL UNIQUE,
+        SenhaHash NVARCHAR(255) NOT NULL,
+        UltimoLogin DATETIME,
+        Ativo BIT DEFAULT 1,
+        DataCriacao DATETIME DEFAULT GETDATE(),
+        CriadoPor INT,
+        DataAlteracao DATETIME,
+        AlteradoPor INT,
+
+        -- Chave estrangeira para Perfis
+        CONSTRAINT FK_Usuarios_Perfil FOREIGN KEY (PerfilId) REFERENCES Perfis(Id),
+        
+        -- Auto-relacionamentos para rastrear quem criou/alterou
+        CONSTRAINT FK_Usuarios_Criador FOREIGN KEY (CriadoPor) REFERENCES Usuarios(Id),
+        CONSTRAINT FK_Usuarios_Alterador FOREIGN KEY (AlteradoPor) REFERENCES Usuarios(Id)
+    );
+END
+GO
+
 -- Tabela Unidades
 IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[Unidades]') AND type in (N'U'))
 BEGIN
