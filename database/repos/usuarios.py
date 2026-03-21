@@ -32,6 +32,41 @@ class UsuariosRepo(BaseRepo):
     def __init__(self):
         super().__init__(table_name="Usuarios")
 
+    # Retorna a lista de usuários com os nomes dos perfis (JOIN)
+    def list(self, page=1, page_size=20, filters=None):
+        offset = (page - 1) * page_size
+
+        # Base da query
+        query_base = '''
+            FROM Usuarios u
+            INNER JOIN Perfis p ON u.PerfilId = p.Id
+            WHERE 1=1
+        '''
+        params = []
+
+        # Aplicação de filtros (Busca rápida por Nome ou Login)
+        if filters:
+            for f in filters:
+                if f.get("type") == "quick":
+                    query_base += " AND (u.Nome LIKE ? OR u.Login LIKE ?)"
+                    val = f"%{f['value']}%"
+                    params.extend([val, val])
+
+        # Busca o total para a paginação
+        total = self.execute_query(f"SELECT COUNT(*) as Total {query_base}", params)[0]['Total']
+
+        # Busca os dados paginados
+        query_data = f'''
+            SELECT u.Id, u.Nome, u.Login, p.Nome as Perfil, u.UltimoLogin, u.Ativo
+            {query_base}
+            ORDER BY u.Nome
+            OFFSET ? ROWS FETCH NEXT ? ROWS ONLY
+        '''
+        params.extend([offset, page_size])
+        rows = self.execute_query(query_data, params)
+
+        return total, rows
+
     # Verifica o login e a senha, trazendo as permissoes do perfil atrelado em uma unica consulta
     def autenticar(self, login, senha_plana):
         # Usando aspas simples triplas para query multi-linha

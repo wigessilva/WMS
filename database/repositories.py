@@ -3,6 +3,7 @@ from .repos.estoque import LocationsRepo, AddressesRepo, LpnRepo
 from .repos.recebimento import OcRepo, RecebimentoRepo
 from .repos.sistema import PrintersRepo, PrinterConfig, GlobalPolicies
 from .repos.estoque import AreasRepo
+from .repos.usuarios import PerfisRepo, UsuariosRepo
 from utils.helpers import bus
 
 # --- INSTANCIAÇÃO DOS REPOSITÓRIOS ---
@@ -14,6 +15,8 @@ locations_repo = LocationsRepo()
 printers_repo = PrintersRepo()
 oc_repo = OcRepo()
 areas_repo = AreasRepo()
+perfis_repo = PerfisRepo()
+usuarios_repo = UsuariosRepo()
 unit_alias_repo = UnitAliasRepo(event_bus=bus)
 
 # Nível 2: Com dependências

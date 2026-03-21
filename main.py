@@ -14,6 +14,8 @@ from ui.pages.enderecos import EnderecosPage
 from ui.pages.home import HomePage
 from ui.pages.produtos import CadastroProdutosPage
 from ui.pages.recebimento import RecebimentoPage
+from ui.pages.perfis import PerfisPage
+from ui.pages.usuarios import UsuariosPage
 from utils.constants import (
     Colors,
     FONT_BTN, ARROW_FONT, SUB_FONT, GAP_Y, TOP_PAD, MARKER_W
@@ -37,8 +39,9 @@ BUTTONS = [
 # Sub-menus
 SUBTABS = {
     "Configurações": [
-        "Usuários",
-        "Permissões",
+        "Acessos", # Funciona apenas como um título (não-clicável)
+        "- Usuários", # O traço indica que é sub-subpágina (será recuado)
+        "- Perfis",
         "Locais de Estoque",
         "Endereços",
         "Unidades de Medida",
@@ -89,6 +92,8 @@ class App(ttk.Frame):
         self.register_page("Home", HomePage)
         self.register_page("Cadastro de Produtos", CadastroProdutosPage)
         self.register_page("Famílias", FamiliasPage)
+        self.register_page("Usuários", UsuariosPage)
+        self.register_page("Perfis", PerfisPage)
         self.register_page("Vínculos de Fornecedores", ProductAliasPage)
         self.register_page("Unidades de Medida", UnidadesMedidaPage)
         self.register_page("Locais de Estoque", LocaisEstoquePage)
@@ -263,6 +268,10 @@ class App(ttk.Frame):
                 group_markers = []
 
                 for si, sub in enumerate(sub_list):
+                    # Verifica se é uma sub-subpágina pelo prefixo
+                    is_nested = sub.startswith("- ")
+                    display_text = sub[2:] if is_nested else sub
+
                     sub_row = tk.Frame(sub_container, bg=Colors.BG_SIDEBAR)
                     sub_row.grid(row=si, column=0, sticky="ew")
                     if ROW_H_STD["px"]:
@@ -272,12 +281,18 @@ class App(ttk.Frame):
                     sub_row.columnconfigure(0, weight=1)
                     sub_row.columnconfigure(1, weight=0)
 
+                    # Aumenta o recuo (padding) em 16px se for uma sub-subpágina
+                    current_pad = SUB_LEFT_PAD + 16 if is_nested else SUB_LEFT_PAD
+
+                    # Define cursor de "mãozinha" se a página existir, senão cursor normal (seta)
+                    cursor_type = "hand2" if display_text in self.page_factories else "arrow"
+
                     sub_btn = tk.Button(
-                        sub_row, text=sub, font=SUB_FONT,
+                        sub_row, text=display_text, font=SUB_FONT,
                         fg=Colors.TEXT_SIDEBAR, bg=Colors.BG_SIDEBAR,
                         activeforeground=Colors.TEXT_SIDEBAR, activebackground=Colors.ROW_HOVER_SB,
-                        relief="flat", bd=0, highlightthickness=0, cursor="hand2",
-                        anchor="w", padx=SUB_LEFT_PAD
+                        relief="flat", bd=0, highlightthickness=0, cursor=cursor_type,
+                        anchor="w", padx=current_pad
                     )
                     sub_btn.grid(row=0, column=0, sticky="nsew", padx=0, ipady=2)
 
@@ -287,19 +302,26 @@ class App(ttk.Frame):
                     group_markers.append(sub_marker)
 
                     sub_widgets = (sub_row, sub_btn, sub_marker)
-                    sub_btn.bind("<Enter>", lambda e, r=sub_row, ws=sub_widgets, m=sub_marker: on_enter(r, ws, m))
-                    sub_btn.bind("<Leave>", lambda e, r=sub_row, ws=sub_widgets, m=sub_marker: on_leave(r, ws, m))
 
-                    def open_sub(name=sub, r=sub_row, ws=sub_widgets, m=sub_marker, header_text=text):
-                        if name in self.page_factories:
-                            self._set_group_state(header_text, True)
-                            self.show_page(name)
+                    # Aplica hover e clique APENAS se a página estiver registrada
+                    if display_text in self.page_factories:
+                        sub_btn.bind("<Enter>", lambda e, r=sub_row, ws=sub_widgets, m=sub_marker: on_enter(r, ws, m))
+                        sub_btn.bind("<Leave>", lambda e, r=sub_row, ws=sub_widgets, m=sub_marker: on_leave(r, ws, m))
 
-                    sub_btn.configure(command=open_sub)
+                        def open_sub(name=display_text, r=sub_row, ws=sub_widgets, m=sub_marker, header_text=text):
+                            if name in self.page_factories:
+                                self._set_group_state(header_text, True)
+                                self.show_page(name)
+
+                        sub_btn.configure(command=open_sub)
+                    else:
+                        # Tira o efeito de fundo no hover para itens que funcionam apenas como título/separador
+                        sub_btn.configure(activebackground=Colors.BG_SIDEBAR)
+
                     sub_row.bind("<Configure>", lambda e, m=sub_marker, r=sub_row:
                     (self.selected_marker is m) and redraw_current_marker(r.winfo_height()))
 
-                    self.page_to_menuitem[sub] = (sub_row, sub_widgets, sub_marker)
+                    self.page_to_menuitem[display_text] = (sub_row, sub_widgets, sub_marker)
 
                 self.groups[text] = {"container": sub_container, "arrow": arrow_btn, "markers": set(group_markers),
                                      "open": False}
