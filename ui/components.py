@@ -4732,44 +4732,27 @@ class ConferenciaModal(SaaSModal):
         nav_item_box.columnconfigure(3, weight=0)
         nav_item_box.columnconfigure(4, weight=1)
 
+        # Seta Anterior
         btn_prev_item = PillButton(nav_item_box, text="", icon=load_icon("anterior", 16),
                                    variant="outline", width=34, command=self._nav_prev_item)
         btn_prev_item.grid(row=0, column=1, padx=15)
 
-        # NOVA REGRA: Apenas desabilita se for o primeiro item da lista (livre navegação)
+        # Desabilita apenas se for o primeiro item da lista
         if self.current_idx <= 0:
             btn_prev_item.state(["disabled"])
 
+        # Título
         lbl_item_title = tk.Label(nav_item_box, text=f"Item {self.current_idx + 1}/{len(self.items)}: {item['Sku']}",
                                   font=("Segoe UI", 14, "bold"), bg=Colors.BG_APP, fg=Colors.TEXT_MAIN)
         lbl_item_title.grid(row=0, column=2)
 
+        # Seta Próximo
         btn_next_item = PillButton(nav_item_box, text="", icon=load_icon("proximo", 16),
                                    variant="outline", width=34, command=self._nav_next_item)
         btn_next_item.grid(row=0, column=3, padx=15)
 
-        # NOVA REGRA: Apenas desabilita se for o último item da lista (livre navegação)
+        # Desabilita apenas se for o último item da lista
         if self.current_idx >= len(self.items) - 1:
-            btn_next_item.state(["disabled"])
-
-        lbl_item_title = tk.Label(nav_item_box,
-                                  text=f"Item {self.current_idx + 1}/{len(self.items)}: {item['Sku']}",
-                                  font=("Segoe UI", 14, "bold"), bg=Colors.BG_APP, fg=Colors.TEXT_MAIN)
-        lbl_item_title.grid(row=0, column=2)
-
-        btn_next_item = PillButton(nav_item_box, text="", icon=load_icon("proximo", 16),
-                                   variant="outline", width=34, command=self._nav_next_item)
-        btn_next_item.grid(row=0, column=3, padx=15)
-
-        # # Nova lógica de validação da seta para a direita
-        pode_avancar = False
-        if self.current_idx < len(self.items) - 1:
-            # Permite avançar se o item ATUAL já começou a ser conferido (tem LPN)
-            # ou se o PRÓXIMO item já tiver LPN
-            if self._item_tem_lpn(self.current_idx) or self._item_tem_lpn(self.current_idx + 1):
-                pode_avancar = True
-
-        if not pode_avancar:
             btn_next_item.state(["disabled"])
 
         # --- LÓGICA DE TRUNCAMENTO (ADICIONAR "...") ---
