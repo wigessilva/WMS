@@ -4254,20 +4254,7 @@ class ConferenciaModal(SaaSModal):
 
         # Carrega itens do PR
         self.items = recebimento_repo.list_itens_por_pr(pr_code)
-
-        # --- CORREÇÃO DO LOOP INFINITO: Encontrar o primeiro item pendente ---
         self.current_idx = 0
-        for idx, item in enumerate(self.items):
-            q_nota = float(item.get("Qtd", 0))
-            q_col = float(item.get("QtdColetada", 0))
-            st = item.get("Status")
-
-            # Se não estiver concluído e ainda faltar coletar, este é o item atual!
-            if st != StatusPR.CONCLUIDO and q_col < q_nota:
-                self.current_idx = idx
-                break
-        # -------------------------------------------------------------------
-
         self.current_lpn = None
 
         self.content.configure(bg=Colors.BG_APP)
@@ -4312,38 +4299,57 @@ class ConferenciaModal(SaaSModal):
         btn_continue.pack(anchor="center")
 
         # ==========================================================
-        # NOVO: SEÇÃO DE RECUPERAÇÃO DE LPNs EXISTENTES
+        # NOVO: SEÇÃO DE RECUPERAÇÃO DE LPNs EXISTENTES DA NOTA INTEIRA
         # ==========================================================
-        item_id = self.items[self.current_idx]["Id"]
+        ids_itens = [it["Id"] for it in self.items]
+        placeholders = ",".join("?" for _ in ids_itens)
+        sql_lpns = f"SELECT Lpn, RecebimentoItemId FROM RecebimentoLeituras WHERE RecebimentoItemId IN ({placeholders}) AND Lpn IS NOT NULL AND Estornado = 0 ORDER BY DataHora"
+        res_lpns = recebimento_repo.execute_query(sql_lpns, tuple(ids_itens))
 
-        # 1. Busca LPNs salvos no banco
-        sql_lpns = "SELECT Lpn FROM RecebimentoLeituras WHERE RecebimentoItemId=? AND Lpn IS NOT NULL AND Estornado = 0 GROUP BY Lpn ORDER BY MIN(DataHora)"
-        res_lpns = recebimento_repo.execute_query(sql_lpns, (item_id,))
-        lpns_banco = [r['Lpn'] for r in res_lpns if r['Lpn']]
+        lpns_banco = []
+        self._mapa_lpn_item = {}  # Mapeamento global para saber de qual item é cada LPN
+
+        if res_lpns:
+            for r in res_lpns:
+                l = r['Lpn']
+                if l and l not in lpns_banco:
+                    lpns_banco.append(l)
+                    self._mapa_lpn_item[l] = r['RecebimentoItemId']
 
         # 2. Resgata os LPNs da memória (caso algum LPN novo ainda não tenha ido pro banco)
-        lpns_memoria = getattr(self, "lpns_do_item", []) if getattr(self, "_lpn_list_item_id", None) == item_id else []
+        lpns_memoria = []
+        for it in self.items:
+            dados = it.get("dados_qualidade", {})
+            if isinstance(dados, str):
+                try:
+                    import json
+                    dados = json.loads(dados)
+                except:
+                    dados = {}
+            l_mem = dados.get("lpn_vinculado")
+            if l_mem and l_mem not in lpns_banco and l_mem not in lpns_memoria:
+                lpns_memoria.append(l_mem)
+                self._mapa_lpn_item[l_mem] = it["Id"]
 
         # 3. Combina e remove duplicatas
-        self.lpns_do_item = []
+        self.lpns_da_nota = []
         for lpn in lpns_banco + lpns_memoria:
-            if lpn not in self.lpns_do_item:
-                self.lpns_do_item.append(lpn)
+            if lpn not in self.lpns_da_nota:
+                self.lpns_da_nota.append(lpn)
 
         # Se já houver LPNs na caixa, exibe a opção de selecioná-los
-        if self.lpns_do_item:
+        if self.lpns_da_nota:
             # Linha separadora discreta
             tk.Frame(center_box, bg=Colors.BORDER, height=1).pack(fill="x", pady=25)
 
             tk.Label(center_box, text="Ou continue em um LPN já conferido:",
                      font=("Segoe UI", 10), bg=Colors.BG_APP, fg="#6B7280").pack(pady=(0, 20))
 
-            # Substituído para PillCombobox para manter o padrão visual do sistema
-            self.cb_lpns_existentes = PillCombobox(center_box, values=self.lpns_do_item)
+            self.cb_lpns_existentes = PillCombobox(center_box, values=self.lpns_da_nota)
             self.cb_lpns_existentes.pack(fill="x", pady=(0, 15))
 
             # Deixa o último LPN pré-selecionado para facilitar
-            self.cb_lpns_existentes.set(self.lpns_do_item[-1])
+            self.cb_lpns_existentes.set(self.lpns_da_nota[-1])
 
             btn_abrir = PillButton(center_box, text="Abrir LPN", variant="outline", command=self._abrir_lpn_existente,
                                    height=40, width=140)
@@ -4355,11 +4361,20 @@ class ConferenciaModal(SaaSModal):
         if not hasattr(self, "cb_lpns_existentes"): return
 
         lpn_selecionado = self.cb_lpns_existentes.get()
-        if lpn_selecionado and lpn_selecionado in self.lpns_do_item:
-            self.current_lpn = lpn_selecionado
-            self.current_lpn_idx = self.lpns_do_item.index(lpn_selecionado)
+        if lpn_selecionado and lpn_selecionado in self.lpns_da_nota:
 
-            # Chama a mesma função mágica que as setinhas usam para repopular a tela!
+            # --- Ajusta o ponteiro para o item correto desse LPN ---
+            item_id_do_lpn = self._mapa_lpn_item.get(lpn_selecionado)
+            if item_id_do_lpn:
+                for i, it in enumerate(self.items):
+                    if it["Id"] == item_id_do_lpn:
+                        self.current_idx = i
+                        break
+            # -------------------------------------------------------
+
+            self.current_lpn = lpn_selecionado
+
+            # Chama a mesma função mágica que as setinhas usam para repopular a tela
             self._carregar_lpn_selecionado()
 
     def _voltar_para_form(self):
@@ -4488,6 +4503,26 @@ class ConferenciaModal(SaaSModal):
 
             if ok:
                 self._houve_mudanca = True
+
+        # --- NOVO: Avança automaticamente o item se o atual já estiver finalizado ---
+        item_atual = self.items[self.current_idx]
+        qtd_nota = float(item_atual.get("Qtd", 0))
+
+        # Busca QtdColetada fresca do BD
+        sql_qtd = "SELECT ISNULL(SUM(Qtd), 0) as QtdCol FROM RecebimentoLeituras WHERE RecebimentoItemId=? AND Estornado = 0"
+        res_qtd = recebimento_repo.execute_query(sql_qtd, (item_atual["Id"],))
+        qtd_coletada = float(res_qtd[0]['QtdCol']) if res_qtd else float(item_atual.get("QtdColetada", 0))
+
+        if qtd_coletada >= qtd_nota - 0.001:
+            # Procura o próximo item que ainda falta conferir
+            for i in range(self.current_idx + 1, len(self.items)):
+                it = self.items[i]
+                r_qtd = recebimento_repo.execute_query(sql_qtd, (it["Id"],))
+                q_col = float(r_qtd[0]['QtdCol']) if r_qtd else float(it.get("QtdColetada", 0))
+                if q_col < float(it.get("Qtd", 0)) - 0.001:
+                    self.current_idx = i
+                    break
+        # -------------------------------------------------------------------------
 
         self.current_lpn = formatted_lpn
         self._last_form_state = None  # Limpa qualquer estado de fallback
@@ -4664,7 +4699,7 @@ class ConferenciaModal(SaaSModal):
 
         # --- NAVEGAÇÃO CENTRALIZADA DO LPN ---
         nav_box = tk.Frame(hdr, bg=Colors.BG_APP)
-        nav_box.pack(fill="x", pady=(0, 15))
+        nav_box.pack(fill="x", pady=(0, 5))
 
         # Grid para centralizar o LPN e jogar as setas para as laterais dele
         nav_box.columnconfigure(0, weight=1)
@@ -4676,7 +4711,6 @@ class ConferenciaModal(SaaSModal):
         btn_prev = PillButton(nav_box, text="", icon=load_icon("anterior", 16),
                               variant="outline", width=34, command=self._nav_prev)
         btn_prev.grid(row=0, column=1, padx=15)
-        # Desabilita seta Esquerda se for o primeiro LPN
         if self.current_lpn_idx <= 0: btn_prev.state(["disabled"])
 
         lpn_display = self.current_lpn if self.current_lpn else "NOVO LPN"
@@ -4686,12 +4720,57 @@ class ConferenciaModal(SaaSModal):
         btn_next = PillButton(nav_box, text="", icon=load_icon("proximo", 16),
                               variant="outline", width=34, command=self._nav_next)
         btn_next.grid(row=0, column=3, padx=15)
-        # Desabilita seta Direita se for o último LPN
         if self.current_lpn_idx >= len(self.lpns_do_item) - 1: btn_next.state(["disabled"])
 
-        # Título (SKU)
-        tk.Label(hdr, text=item["Sku"], font=("Segoe UI", 14, "bold"),
-                 bg=Colors.BG_APP, fg=Colors.TEXT_MAIN).pack(anchor="w")
+        # --- NAVEGAÇÃO CENTRALIZADA DO ITEM ---
+        nav_item_box = tk.Frame(hdr, bg=Colors.BG_APP)
+        nav_item_box.pack(fill="x", pady=(0, 15))
+
+        nav_item_box.columnconfigure(0, weight=1)
+        nav_item_box.columnconfigure(1, weight=0)
+        nav_item_box.columnconfigure(2, weight=0)
+        nav_item_box.columnconfigure(3, weight=0)
+        nav_item_box.columnconfigure(4, weight=1)
+
+        btn_prev_item = PillButton(nav_item_box, text="", icon=load_icon("anterior", 16),
+                                   variant="outline", width=34, command=self._nav_prev_item)
+        btn_prev_item.grid(row=0, column=1, padx=15)
+
+        # NOVA REGRA: Apenas desabilita se for o primeiro item da lista (livre navegação)
+        if self.current_idx <= 0:
+            btn_prev_item.state(["disabled"])
+
+        lbl_item_title = tk.Label(nav_item_box, text=f"Item {self.current_idx + 1}/{len(self.items)}: {item['Sku']}",
+                                  font=("Segoe UI", 14, "bold"), bg=Colors.BG_APP, fg=Colors.TEXT_MAIN)
+        lbl_item_title.grid(row=0, column=2)
+
+        btn_next_item = PillButton(nav_item_box, text="", icon=load_icon("proximo", 16),
+                                   variant="outline", width=34, command=self._nav_next_item)
+        btn_next_item.grid(row=0, column=3, padx=15)
+
+        # NOVA REGRA: Apenas desabilita se for o último item da lista (livre navegação)
+        if self.current_idx >= len(self.items) - 1:
+            btn_next_item.state(["disabled"])
+
+        lbl_item_title = tk.Label(nav_item_box,
+                                  text=f"Item {self.current_idx + 1}/{len(self.items)}: {item['Sku']}",
+                                  font=("Segoe UI", 14, "bold"), bg=Colors.BG_APP, fg=Colors.TEXT_MAIN)
+        lbl_item_title.grid(row=0, column=2)
+
+        btn_next_item = PillButton(nav_item_box, text="", icon=load_icon("proximo", 16),
+                                   variant="outline", width=34, command=self._nav_next_item)
+        btn_next_item.grid(row=0, column=3, padx=15)
+
+        # # Nova lógica de validação da seta para a direita
+        pode_avancar = False
+        if self.current_idx < len(self.items) - 1:
+            # Permite avançar se o item ATUAL já começou a ser conferido (tem LPN)
+            # ou se o PRÓXIMO item já tiver LPN
+            if self._item_tem_lpn(self.current_idx) or self._item_tem_lpn(self.current_idx + 1):
+                pode_avancar = True
+
+        if not pode_avancar:
+            btn_next_item.state(["disabled"])
 
         # --- LÓGICA DE TRUNCAMENTO (ADICIONAR "...") ---
         full_desc = item["Descricao"]
@@ -4707,10 +4786,10 @@ class ConferenciaModal(SaaSModal):
             chars_fit = int((max_w_desc - font_desc.measure("...")) / avg_char)
             display_desc = full_desc[:chars_fit] + "..."
 
-        # Label Descrição (Sem wraplength, pois agora cortamos o texto)
+        # Label Descrição
         lbl_desc = tk.Label(hdr, text=display_desc, font=("Segoe UI", 10),
-                            bg=Colors.BG_APP, fg="#6B7280", anchor="w")
-        lbl_desc.pack(anchor="w")
+                            bg=Colors.BG_APP, fg="#6B7280", anchor="center")
+        lbl_desc.pack(anchor="center")
 
         # Opcional: Adiciona Tooltip nativo simples para mostrar o nome completo ao parar o mouse
         if display_desc != full_desc:
@@ -5095,16 +5174,10 @@ class ConferenciaModal(SaaSModal):
                 else:
                     self.alert("Bloqueio Fiscal",
                                "Divergência persistente após 3 tentativas.\n\n"
-                               "Item bloqueado para análise",
+                               "O item será enviado para análise",
                                type="error")
                     obs_visual = getattr(self, "temp_desc_visual", "")
 
-                    # ====================================================================
-                    # CORREÇÃO DEFINITIVA: SALVAR O LPN ANTES DE BLOQUEAR O ITEM
-                    # Como a quantidade é menor, o sistema caía aqui e pulava o salvamento,
-                    # deixando o LPN vazio. Agora forçamos a gravação do LPN e de seus
-                    # respectivos Lote e Validade antes de aplicar o bloqueio fiscal.
-                    # ====================================================================
                     recebimento_repo.salvar_item_conferencia(
                         item_id=item_atual["Id"],
                         dados_conferencia={
@@ -5126,7 +5199,6 @@ class ConferenciaModal(SaaSModal):
                         }
                     )
 
-                    # Após o LPN estar salvo fisicamente, registra o erro no log e bloqueia
                     recebimento_repo.registrar_erro_tentativa(
                         self.pr_code,
                         item_atual["Id"],
@@ -5138,7 +5210,28 @@ class ConferenciaModal(SaaSModal):
                     )
 
                     self._houve_mudanca = True
-                    self.close()
+
+                    # --- NOVO FLUXO: PROCURA PRÓXIMO ITEM EM VEZ DE FECHAR ---
+                    proximo_idx = None
+                    for i in range(len(self.items)):
+                        if i == self.current_idx: continue
+                        it = self.items[i]
+
+                        sql_qtd = "SELECT ISNULL(SUM(Qtd), 0) as QtdCol FROM RecebimentoLeituras WHERE RecebimentoItemId=? AND Estornado = 0"
+                        res_qtd = recebimento_repo.execute_query(sql_qtd, (it["Id"],))
+                        q_col = float(res_qtd[0]['QtdCol']) if res_qtd else float(it.get("QtdColetada", 0))
+
+                        if q_col < float(it.get("Qtd", 0)) - 0.001:
+                            proximo_idx = i
+                            break
+
+                    if proximo_idx is not None:
+                        self.current_idx = proximo_idx
+                        self.current_lpn = None
+                        self._show_stage_lpn()
+                    else:
+                        self.close()
+                    # ---------------------------------------------------------
                     return
 
         # 3. SE FOR "NOVO LPN" -> Apenas acumula, mas impede que passe da quantidade máxima da NF sem querer
@@ -5251,47 +5344,71 @@ class ConferenciaModal(SaaSModal):
 
     def _decide_flow(self):
         self._last_form_state = None
-
         item = self.items[self.current_idx]
 
-        # Verifica se já existe dados de qualidade/LPN salvos neste item
-        dados_salvos = item.get("dados_qualidade", {})
-        lpn_vinculado = dados_salvos.get("lpn_vinculado")
+        # 1. Recupera dados do Banco
+        dados_db = item.get("dados_qualidade", {})
+        if isinstance(dados_db, str):
+            try:
+                import json
+                dados_db = json.loads(dados_db)
+            except:
+                dados_db = {}
 
-        if lpn_vinculado:
-            # Se já tem LPN, carrega ele e vai direto pro formulário (Modo Edição/Visualização)
-            self.current_lpn = lpn_vinculado
-            self._qtd_original_edicao = float(dados_salvos.get("qtd", item.get("QtdColetada", 0)))
+        lpn_banco = dados_db.get("lpn_vinculado")
+
+        # 2. Sincronização: Se o usuário está vindo de uma navegação "vazia",
+        # mas o item já tem um LPN principal no banco, ativa ele automaticamente.
+        if not self.current_lpn and lpn_banco:
+            self.current_lpn = lpn_banco
+
+        # --- A partir daqui, as prioridades decidem qual tela exibir ---
+
+        # PRIORIDADE 1: CACHE VIVO (Rascunho de navegação não salvo no BD)
+        if self.current_lpn and hasattr(self, "_lpn_cache") and self.current_lpn in self._lpn_cache:
+            cache = self._lpn_cache[self.current_lpn]
+            self._last_form_state = cache
+
+            if self.current_lpn == lpn_banco:
+                self._qtd_original_edicao = float(dados_db.get("qtd", item.get("QtdColetada", 0)))
+
+            self._voltar_para_form()
+
+        # PRIORIDADE 2: BANCO DE DADOS (LPN já salvo anteriormente)
+        # FIX: Adicionado 'self.current_lpn' para evitar o erro None == None
+        elif self.current_lpn and self.current_lpn == lpn_banco:
+            self._qtd_original_edicao = float(dados_db.get("qtd", item.get("QtdColetada", 0)))
             self._show_stage_form()
 
-            # Preenche os campos visualmente puxando PRIMEIRO o que o usuário digitou, e não a Nota
             self.ent_ean.configure(state="normal")
             self.ent_ean.delete(0, "end")
-            ean_salvo = dados_salvos.get("ean_lido", item.get("EanNota", ""))
+            ean_salvo = dados_db.get("ean_lido", item.get("EanNota", ""))
             self.ent_ean.insert(0, ean_salvo)
 
-            # Trava o campo caso tenha sido descrição visual
             if ean_salvo == "SEM GTIN":
                 self.ent_ean.configure(state="disabled")
 
             self.ent_lote.delete(0, "end")
-            self.ent_lote.insert(0, dados_salvos.get("lote", item.get("Lote", "")))
+            self.ent_lote.insert(0, dados_db.get("lote", item.get("Lote", "")))
 
             self.ent_val.delete(0, "end")
-            self.ent_val.insert(0, dados_salvos.get("validade", item.get("Val", "")))
+            self.ent_val.insert(0, dados_db.get("validade", item.get("Val", "")))
 
             self.ent_qtd.delete(0, "end")
             self.ent_qtd.insert(0, str(float(item.get("QtdColetada", 0))))
 
-            # Restaura comboboxes de qualidade
-            if "embalagem_integra" in dados_salvos: self.cb_emb.set(dados_salvos["embalagem_integra"])
-            if "material_integro" in dados_salvos: self.cb_mat.set(dados_salvos["material_integro"])
-            if "identificacao_correta" in dados_salvos: self.cb_id.set(dados_salvos["identificacao_correta"])
-            if "certificado" in dados_salvos: self.cb_cert.set(dados_salvos["certificado"])
-            if "status_qualidade" in dados_salvos: self.cb_status.set(dados_salvos["status_qualidade"])
+            if "embalagem_integra" in dados_db: self.cb_emb.set(dados_db["embalagem_integra"])
+            if "material_integro" in dados_db: self.cb_mat.set(dados_db["material_integro"])
+            if "identificacao_correta" in dados_db: self.cb_id.set(dados_db["identificacao_correta"])
+            if "certificado" in dados_db: self.cb_cert.set(dados_db["certificado"])
+            if "status_qualidade" in dados_db: self.cb_status.set(dados_db["status_qualidade"])
 
+        # PRIORIDADE 3: NOVO LPN (Digitado agora ou vindo de cache vazio)
+        elif self.current_lpn:
+            self._show_stage_form()
+
+        # PRIORIDADE 4: TELA DE ENTRADA (Nenhum LPN definido para este item)
         else:
-            # Se não tem LPN, limpa a memória temporária e pede LPN novo
             self.current_lpn = None
             self._show_stage_lpn()
 
@@ -5389,6 +5506,13 @@ class ConferenciaModal(SaaSModal):
         if not hasattr(self, "_lpn_cache"): self._lpn_cache = {}
 
         if hasattr(self, "ent_qtd") and self.ent_qtd.winfo_exists():
+
+            # Garante a conversão correta e segura para não falhar na restauração
+            try:
+                qtd_conv = float(self.ent_qtd.get() or 0)
+            except:
+                qtd_conv = 0.0
+
             self._lpn_cache[self.current_lpn] = {
                 "ean": self.ent_ean.get(),
                 "lote": self.ent_lote.get(),
@@ -5401,7 +5525,9 @@ class ConferenciaModal(SaaSModal):
                 "id": self.cb_id.get(),
                 "cert": self.cb_cert.get(),
                 "status": self.cb_status.get(),
-                "desc_visual": getattr(self, "temp_desc_visual", "")
+                "desc_visual": getattr(self, "temp_desc_visual", ""),
+                "lpn": self.current_lpn,
+                "qtd_convertida": qtd_conv
             }
 
     def _nav_prev(self):
@@ -5417,6 +5543,113 @@ class ConferenciaModal(SaaSModal):
             self.current_lpn_idx += 1
             self.current_lpn = self.lpns_do_item[self.current_lpn_idx]
             self._carregar_lpn_selecionado()
+
+    def _item_tem_lpn(self, idx):
+        if idx < 0 or idx >= len(self.items): return False
+
+        # 1. Checa cache interno da navegação (Fotografia da memória)
+        if hasattr(self, '_lpns_em_memoria') and idx in self._lpns_em_memoria and self._lpns_em_memoria[idx]:
+            return True
+
+        item = self.items[idx]
+
+        # 2. Checa banco de dados
+        try:
+            sql = "SELECT TOP 1 1 FROM RecebimentoLeituras WHERE RecebimentoItemId=? AND Lpn IS NOT NULL AND Estornado = 0"
+            res = recebimento_repo.execute_query(sql, (item["Id"],))
+            if res and len(res) > 0: return True
+        except Exception:
+            pass
+
+        # 3. Checa memória estrutural do item
+        dados = item.get("dados_qualidade", {})
+        if isinstance(dados, str):
+            try:
+                import json; dados = json.loads(dados)
+            except:
+                dados = {}
+        if dados.get("lpn_vinculado"): return True
+        return False
+
+    def _nav_prev_item(self):
+        if not hasattr(self, '_lpns_em_memoria'): self._lpns_em_memoria = {}
+
+        # Removida a trava de _item_tem_lpn
+        if self.current_idx > 0:
+            self._salvar_estado_temporario()
+
+            self._lpns_em_memoria[self.current_idx] = self.current_lpn
+
+            self.current_idx -= 1
+            item_destino = self.items[self.current_idx]
+
+            novo_lpn = None
+            if self.current_idx in self._lpns_em_memoria:
+                novo_lpn = self._lpns_em_memoria[self.current_idx]
+
+            if not novo_lpn:
+                sql = "SELECT TOP 1 Lpn FROM RecebimentoLeituras WHERE RecebimentoItemId=? AND Estornado = 0 AND Lpn IS NOT NULL ORDER BY DataHora DESC"
+                try:
+                    lpns = recebimento_repo.execute_query(sql, (item_destino["Id"],))
+                    if lpns: novo_lpn = lpns[0]["Lpn"]
+                except:
+                    pass
+
+            if not novo_lpn:
+                dados = item_destino.get("dados_qualidade", {})
+                if isinstance(dados, str):
+                    try:
+                        import json; dados = json.loads(dados)
+                    except:
+                        dados = {}
+                novo_lpn = dados.get("lpn_vinculado")
+
+            # Se o próximo item for virgem, arrasta o LPN novo que o usuário estava segurando
+            if not novo_lpn and self.current_lpn:
+                novo_lpn = self.current_lpn
+
+            self.current_lpn = novo_lpn
+            self._decide_flow()
+
+    def _nav_next_item(self):
+        if not hasattr(self, '_lpns_em_memoria'): self._lpns_em_memoria = {}
+
+        # Removida a trava de _item_tem_lpn
+        if self.current_idx < len(self.items) - 1:
+            self._salvar_estado_temporario()
+
+            self._lpns_em_memoria[self.current_idx] = self.current_lpn
+
+            self.current_idx += 1
+            item_destino = self.items[self.current_idx]
+
+            novo_lpn = None
+            if self.current_idx in self._lpns_em_memoria:
+                novo_lpn = self._lpns_em_memoria[self.current_idx]
+
+            if not novo_lpn:
+                sql = "SELECT TOP 1 Lpn FROM RecebimentoLeituras WHERE RecebimentoItemId=? AND Estornado = 0 AND Lpn IS NOT NULL ORDER BY DataHora DESC"
+                try:
+                    lpns = recebimento_repo.execute_query(sql, (item_destino["Id"],))
+                    if lpns: novo_lpn = lpns[0]["Lpn"]
+                except:
+                    pass
+
+            if not novo_lpn:
+                dados = item_destino.get("dados_qualidade", {})
+                if isinstance(dados, str):
+                    try:
+                        import json; dados = json.loads(dados)
+                    except:
+                        dados = {}
+                novo_lpn = dados.get("lpn_vinculado")
+
+            # Se o próximo item for virgem, arrasta o LPN novo que o usuário estava segurando
+            if not novo_lpn and self.current_lpn:
+                novo_lpn = self.current_lpn
+
+            self.current_lpn = novo_lpn
+            self._decide_flow()
 
     def _ao_bipar_ean(self, event):
         # Quando o scanner dá "Enter", validamos e travamos a unidade se for caixa
