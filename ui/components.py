@@ -4254,7 +4254,20 @@ class ConferenciaModal(SaaSModal):
 
         # Carrega itens do PR
         self.items = recebimento_repo.list_itens_por_pr(pr_code)
+
+        # --- CORREÇÃO DO LOOP INFINITO: Encontrar o primeiro item pendente ---
         self.current_idx = 0
+        for idx, item in enumerate(self.items):
+            q_nota = float(item.get("Qtd", 0))
+            q_col = float(item.get("QtdColetada", 0))
+            st = item.get("Status")
+
+            # Se não estiver concluído e ainda faltar coletar, este é o item atual!
+            if st != StatusPR.CONCLUIDO and q_col < q_nota:
+                self.current_idx = idx
+                break
+        # -------------------------------------------------------------------
+
         self.current_lpn = None
 
         self.content.configure(bg=Colors.BG_APP)
@@ -4891,7 +4904,7 @@ class ConferenciaModal(SaaSModal):
         self.ent_val._entry.bind("<Return>", lambda e: self.ent_qtd.focus_set())
 
         # 5. Quantidade -> Salvar (Opcional, agiliza o processo)
-        self.ent_qtd._entry.bind("<Return>", lambda e: self._save_and_action("new_lpn"))
+        self.ent_qtd._entry.bind("<Return>", lambda e, a=acao_botao: self._save_and_action(a))
 
         # Foco Inicial: Sempre no Código de Barras
         self.ent_ean.focus_set()
