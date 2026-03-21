@@ -5326,10 +5326,19 @@ class ConferenciaModal(SaaSModal):
             pass
 
     def _decide_flow(self):
+        # 1. VERIFICAÇÃO DE TROCA DE ITEM
+        # Limpa os rascunhos (cache) para não vazar informações para o novo item,
+        # MAS mantém o 'self.current_lpn' ativo para não pedir o LPN novamente.
+        if getattr(self, '_last_item_idx', -1) != self.current_idx:
+            if hasattr(self, '_lpn_cache'):
+                self._lpn_cache = {}      # Apaga os rascunhos em memória
+            self._last_form_state = None
+            self._last_item_idx = self.current_idx
+
         self._last_form_state = None
         item = self.items[self.current_idx]
 
-        # 1. Recupera dados do Banco
+        # 2. Recupera dados do Banco
         dados_db = item.get("dados_qualidade", {})
         if isinstance(dados_db, str):
             try:
@@ -5340,57 +5349,27 @@ class ConferenciaModal(SaaSModal):
 
         lpn_banco = dados_db.get("lpn_vinculado")
 
-        # 2. Sincronização: Se o usuário está vindo de uma navegação "vazia",
-        # mas o item já tem um LPN principal no banco, ativa ele automaticamente.
+        # 3. Sincronização
         if not self.current_lpn and lpn_banco:
             self.current_lpn = lpn_banco
 
-        # --- A partir daqui, as prioridades decidem qual tela exibir ---
+        # --- PRIORIDADES ---
 
         # PRIORIDADE 1: CACHE VIVO (Rascunho de navegação não salvo no BD)
         if self.current_lpn and hasattr(self, "_lpn_cache") and self.current_lpn in self._lpn_cache:
             cache = self._lpn_cache[self.current_lpn]
             self._last_form_state = cache
-
-            if self.current_lpn == lpn_banco:
-                self._qtd_original_edicao = float(dados_db.get("qtd", item.get("QtdColetada", 0)))
-
             self._voltar_para_form()
 
         # PRIORIDADE 2: BANCO DE DADOS (LPN já salvo anteriormente)
-        # FIX: Adicionado 'self.current_lpn' para evitar o erro None == None
         elif self.current_lpn and self.current_lpn == lpn_banco:
-            self._qtd_original_edicao = float(dados_db.get("qtd", item.get("QtdColetada", 0)))
-            self._show_stage_form()
+            self._carregar_lpn_selecionado()
 
-            self.ent_ean.configure(state="normal")
-            self.ent_ean.delete(0, "end")
-            ean_salvo = dados_db.get("ean_lido", item.get("EanNota", ""))
-            self.ent_ean.insert(0, ean_salvo)
-
-            if ean_salvo == "SEM GTIN":
-                self.ent_ean.configure(state="disabled")
-
-            self.ent_lote.delete(0, "end")
-            self.ent_lote.insert(0, dados_db.get("lote", item.get("Lote", "")))
-
-            self.ent_val.delete(0, "end")
-            self.ent_val.insert(0, dados_db.get("validade", item.get("Val", "")))
-
-            self.ent_qtd.delete(0, "end")
-            self.ent_qtd.insert(0, str(float(item.get("QtdColetada", 0))))
-
-            if "embalagem_integra" in dados_db: self.cb_emb.set(dados_db["embalagem_integra"])
-            if "material_integro" in dados_db: self.cb_mat.set(dados_db["material_integro"])
-            if "identificacao_correta" in dados_db: self.cb_id.set(dados_db["identificacao_correta"])
-            if "certificado" in dados_db: self.cb_cert.set(dados_db["certificado"])
-            if "status_qualidade" in dados_db: self.cb_status.set(dados_db["status_qualidade"])
-
-        # PRIORIDADE 3: NOVO LPN (Digitado agora ou vindo de cache vazio)
+        # PRIORIDADE 3: NOVO LPN (Traz o formulário limpo para o mesmo LPN)
         elif self.current_lpn:
             self._show_stage_form()
 
-        # PRIORIDADE 4: TELA DE ENTRADA (Nenhum LPN definido para este item)
+        # PRIORIDADE 4: TELA DE ENTRADA (Nenhum LPN definido)
         else:
             self.current_lpn = None
             self._show_stage_lpn()
