@@ -16,12 +16,14 @@ from ui.pages.produtos import CadastroProdutosPage
 from ui.pages.recebimento import RecebimentoPage
 from ui.pages.perfis import PerfisPage
 from ui.pages.usuarios import UsuariosPage
+from ui.pages.login import LoginWindow
 from utils.constants import (
     Colors,
     FONT_BTN, ARROW_FONT, SUB_FONT, GAP_Y, TOP_PAD, MARKER_W
 )
 from utils.helpers import log_exception, load_icon
 from ui.components import SaaSDialog, SaaSModal
+from database.repositories import usuarios_repo
 
 # Menus principais (Configurações antes de Home)
 BUTTONS = [
@@ -828,21 +830,55 @@ def setup_style(root):
 
 
 def main():
-    # Envolvemos a criação da janela em um try/except para pegar erros de inicialização
     try:
         root = tk.Tk()
         root.title("WMS")
         root.minsize(1024, 700)
+
+        root.withdraw()
         setup_style(root)
 
-        try:
-            root.state("zoomed")
-        except tk.TclError:
-            root.update_idletasks()
-            sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
-            root.geometry(f"{sw}x{sh}+0+0")
+        # ====================================================================
+        # AUTO-SETUP: Cria o usuário admin se o banco estiver vazio
+        # ====================================================================
+        def verificar_primeiro_acesso():
+            # Checa quantos usuários existem no banco
+            total, _ = usuarios_repo.list(page=1, page_size=1)
 
-        app = App(root)
+            if total == 0:
+                print("Primeiro acesso detectado. Configurando Administrador padrão...")
+
+                # 1. Cria o perfil Administrador com acesso total
+                permissoes_json = '{"recebimento": true, "produtos": true, "estoque": true, "atividades": true, "configuracoes": true}'
+                usuarios_repo.execute_non_query(
+                    "INSERT INTO Perfis (Nome, Descricao, Permissoes, Ativo) VALUES ('Administrador', 'Acesso total ao sistema', ?, 1)",
+                    (permissoes_json,)
+                )
+
+                # Pega o ID do perfil que acabou de ser criado
+                res = usuarios_repo.execute_query("SELECT TOP 1 Id FROM Perfis ORDER BY Id DESC")
+                perfil_id = res[0]['Id'] if res else 1
+
+                # 2. Cria o usuário Admin com a senha padrao (a função do repo já faz o bcrypt corretamente)
+                # Passamos None para o usuario_logado_id pois é o sistema criando
+                usuarios_repo.criar_usuario(perfil_id, "Administrador do Sistema", "admin", "123456", None)
+                print("Setup concluído com sucesso!")
+
+        # Executa a verificação ANTES de abrir a tela de login
+        verificar_primeiro_acesso()
+
+        # ====================================================================
+
+        def iniciar_sistema():
+            try:
+                root.state("zoomed")
+            except tk.TclError:
+                root.update_idletasks()
+                sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
+                root.geometry(f"{sw}x{sh}+0+0")
+
+            app = App(root)
+            root.deiconify()
 
         def confirm_exit():
             dlg = SaaSDialog(
@@ -869,22 +905,23 @@ def main():
                 "Ocorreu um erro inesperado.\nO detalhe foi salvo em 'sistema_erros.log'.\n\nPor favor, contate o administrador.",
                 icon_name="alert_red"
             )
-            # wait_window faz o código esperar o usuário clicar em OK (igual ao messagebox)
             root.wait_window(dlg)
 
         root.report_callback_exception = handle_tkinter_error
 
+        # Inicializa e mostra a tela de login
+        LoginWindow(root, on_success=iniciar_sistema)
+
         root.mainloop()
 
     except Exception as e:
-        # Pega erros fatais que impedem o sistema de abrir
         log_exception(e, "Falha Fatal na Inicialização")
-        # Tenta mostrar um alerta nativo do Windows já que o TKinter pode ter falhado
         try:
             import ctypes
             ctypes.windll.user32.MessageBoxW(0, f"Erro fatal ao abrir sistema:\n{e}", "Erro Crítico", 16)
         except:
             pass
+
 
 if __name__ == "__main__":
     main()

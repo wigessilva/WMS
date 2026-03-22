@@ -86,7 +86,7 @@ class UsuariosRepo(BaseRepo):
             # Valida o hash com a senha digitada
             if bcrypt.checkpw(senha_digitada, senha_hash_db):
                 # Atualiza a data e hora do ultimo login
-                self.execute_non_query("UPDATE Usuarios SET UltimoLogin = GETDATE() WHERE Id = ?", (usuario['Id'],))
+                self.execute_non_query("UPDATE Usuarios SET UltimoLogin = DATEADD(HOUR, -3, GETUTCDATE()) WHERE Id = ?", (usuario['Id'],))
 
                 return {
                     "id": usuario['Id'],
