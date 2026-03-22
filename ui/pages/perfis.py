@@ -211,7 +211,7 @@ MOCK_HIERARQUIA_PERMISSOES = {
 # =====================================================================
 class CollapsiblePermissionNode(tk.Frame):
     def __init__(self, parent, text, is_leaf=False, is_card_level=False, bg_color=Colors.BG_APP, perm_vars_dict=None,
-                 perm_key=None, on_toggle_callback=None):
+                 perm_key=None, on_toggle_callback=None, state="normal"):
         super().__init__(parent, bg=bg_color)
         self.expanded = False
         self.is_leaf = is_leaf
@@ -236,6 +236,11 @@ class CollapsiblePermissionNode(tk.Frame):
             tk.Frame(self.header, width=24, bg=bg_color).pack(side="left")
 
         self.chk = BlueCheckButton(self.header, text=text, variable=self.var, bg=bg_color, command=self._on_check)
+
+        # Bloqueia a caixinha se o estado for disabled
+        if state == "disabled":
+            self.chk.state(["disabled"])
+
         self.chk.pack(side="left", pady=4)
 
         if is_card_level:
@@ -358,9 +363,7 @@ class PerfisPage(Page):
     def _open_edit_dialog(self):
         sel = self.table.get_selected()
         if not sel: return
-        if sel.get("Id") == 1:
-            self.alert("Acesso Negado", "O perfil Administrador padrão não pode ser editado.", type="warning")
-            return
+
         self._open_perfil_modal("edit", sel)
 
     def _delete_selected(self):
@@ -379,7 +382,14 @@ class PerfisPage(Page):
     # MODAL DE CRIAÇÃO/EDIÇÃO COM ÁRVORE DE PERMISSÕES COLAPSÁVEL
     # =========================================================================
     def _open_perfil_modal(self, mode="add", initial=None):
-        titulo = "Novo Perfil de Acesso" if mode == "add" else "Editar Perfil"
+        # Identifica se é o perfil padrão do sistema (ID 1)
+        is_readonly = (mode == "edit" and initial and initial.get("Id") == 1)
+
+        if is_readonly:
+            titulo = "Visualizar Perfil (Padrão do Sistema)"
+        else:
+            titulo = "Novo Perfil de Acesso" if mode == "add" else "Editar Perfil"
+
         top = SaaSModal(self, title=titulo, width=700, height=750)
 
         main_container = ttk.Frame(top.content, style="Main.TFrame")
@@ -394,19 +404,25 @@ class PerfisPage(Page):
         ent_desc = TextField(frm_header, placeholder="Descrição", height=34)
         ent_desc.pack(side="left", fill="x", expand=True)
 
+        # Bloqueia a digitação do nome e descrição
+        if is_readonly:
+            ent_nome.configure(state="disabled")
+            ent_desc.configure(state="disabled")
+
         frm_footer = ttk.Frame(main_container, style="Main.TFrame")
         frm_footer.pack(side="bottom", fill="x", padx=20, pady=20)
 
         self.perm_vars = {}
 
         def _save():
+            if is_readonly: return  # Trava de segurança extra
+
             nome = ent_nome.get().strip()
             descricao = ent_desc.get().strip()
             if not nome:
                 top.alert("Atenção", "O nome do perfil é obrigatório.", focus_widget=ent_nome)
                 return
 
-            # Pega dinamicamente todas as chaves da árvore que o usuário marcou o check
             permissoes_selecionadas = {k: True for k, var in self.perm_vars.items() if var.get()}
 
             try:
@@ -418,13 +434,8 @@ class PerfisPage(Page):
                                        Permissoes=json.dumps(permissoes_selecionadas))
                     msg_sucesso = f"Perfil '{nome}' atualizado com sucesso!"
 
-                # 1. Atualiza a tabela por trás
                 self.table.load_page(self.table.page)
-
-                # 2. Fecha o modal PRIMEIRO para evitar o erro de foco do Tkinter
                 top.close()
-
-                # 3. Dispara o alerta de sucesso já na tela principal
                 self.alert("Sucesso", msg_sucesso, type="success")
 
             except Exception as e:
@@ -433,8 +444,12 @@ class PerfisPage(Page):
                 else:
                     top.alert("Erro de Sistema", f"Falha ao salvar:\n{str(e)}", type="error")
 
-        PillButton(frm_footer, text="Salvar Perfil", command=_save, variant="success").pack(side="right")
-        PillButton(frm_footer, text="Cancelar", command=top.close, variant="outline").pack(side="right", padx=10)
+        # Muda o rodapé se for somente leitura
+        if is_readonly:
+            PillButton(frm_footer, text="Fechar", command=top.close, variant="primary").pack(side="right")
+        else:
+            PillButton(frm_footer, text="Salvar Perfil", command=_save, variant="success").pack(side="right")
+            PillButton(frm_footer, text="Cancelar", command=top.close, variant="outline").pack(side="right", padx=10)
 
         frm_scroll = tk.Frame(main_container, bg=Colors.BG_APP)
         frm_scroll.pack(side="top", fill="both", expand=True, padx=20, pady=(0, 0))
@@ -453,21 +468,20 @@ class PerfisPage(Page):
         canvas.bind("<Configure>", lambda e: canvas.itemconfig(canvas_window, width=e.width))
 
         def _on_mousewheel(e):
-            if canvas.yview() == (0.0, 1.0):
-                return
-
+            if canvas.yview() == (0.0, 1.0): return
             if e.num == 5 or getattr(e, "delta", 0) < 0:
-                if canvas.yview()[1] < 1.0:
-                    canvas.yview_scroll(1, "units")
+                if canvas.yview()[1] < 1.0: canvas.yview_scroll(1, "units")
             elif e.num == 4 or getattr(e, "delta", 0) > 0:
-                if canvas.yview()[0] > 0.0:
-                    canvas.yview_scroll(-1, "units")
+                if canvas.yview()[0] > 0.0: canvas.yview_scroll(-1, "units")
 
         canvas.bind("<Enter>", lambda e: canvas.bind_all("<MouseWheel>", _on_mousewheel))
         canvas.bind("<Leave>", lambda e: canvas.unbind_all("<MouseWheel>"))
 
         tk.Label(scroll_content, text="Permissões do Sistema", font=("Segoe UI", 12, "bold"), bg=Colors.BG_APP,
                  fg=Colors.PRIMARY).pack(anchor="w", pady=(0, 10))
+
+        # Estado a ser repassado para a criação das caixinhas
+        node_state = "disabled" if is_readonly else "normal"
 
         def build_tree(parent_ui, data_dict, bg_color, callback):
             nodes = []
@@ -476,7 +490,7 @@ class PerfisPage(Page):
                 node = CollapsiblePermissionNode(
                     parent_ui, text=info["nome"], is_leaf=is_leaf,
                     bg_color=bg_color, perm_vars_dict=self.perm_vars, perm_key=key,
-                    on_toggle_callback=callback
+                    on_toggle_callback=callback, state=node_state
                 )
                 if not is_leaf:
                     children = build_tree(node.content_inner, info["filhos"], bg_color, callback)
@@ -501,7 +515,7 @@ class PerfisPage(Page):
             root_node = CollapsiblePermissionNode(
                 card.content, text=mod_info["nome"], is_leaf=False, is_card_level=True,
                 bg_color=Colors.BG_CARD, perm_vars_dict=self.perm_vars, perm_key=mod_key,
-                on_toggle_callback=update_callback
+                on_toggle_callback=update_callback, state=node_state
             )
             root_node.pack(fill="x")
 
@@ -511,17 +525,25 @@ class PerfisPage(Page):
                     root_node.add_child(child)
 
         if mode == "edit" and initial:
+            # Usa tk.NORMAL momentaneamente só para injetar o texto antes de travar
+            ent_nome.configure(state="normal")
             ent_nome.insert(0, initial.get("Nome", ""))
+            if is_readonly: ent_nome.configure(state="disabled")
 
-            # Se a descrição for nula no banco, evita erro colocando string vazia
             desc = initial.get("Descricao")
+            ent_desc.configure(state="normal")
             ent_desc.insert(0, desc if desc else "")
+            if is_readonly: ent_desc.configure(state="disabled")
 
-            # Carrega as permissões do banco e marca automaticamente os checkboxes da árvore
-            perms_salvas = perfis_repo.obter_permissoes(initial["Id"])
-            for chave, var in self.perm_vars.items():
-                if perms_salvas.get(chave) is True:
+            # Se for o Administrador, força tudo a ficar checado visualmente
+            if is_readonly:
+                for var in self.perm_vars.values():
                     var.set(True)
+            else:
+                perms_salvas = perfis_repo.obter_permissoes(initial["Id"])
+                for chave, var in self.perm_vars.items():
+                    if perms_salvas.get(chave) is True:
+                        var.set(True)
 
         if mode == "add":
             ent_nome.focus_set()
