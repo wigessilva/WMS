@@ -3,16 +3,298 @@ from tkinter import ttk
 
 from ui.components import (
     Page, PillButton, StandardTable, SaaSModal, TextField,
-    BlueCheckButton, RoundedCard, CardSectionSeparator, MinimalScrollbar, ToggleSwitch
+    BlueCheckButton, RoundedCard, MinimalScrollbar
 )
 from utils.constants import Colors, PAGE_SIZE_DEFAULT
-from utils.permissoes import DICIONARIO_PERMISSOES
 from utils.helpers import load_icon
 
+# =====================================================================
+# Dicionário Hierárquico de Permissões
+# =====================================================================
+MOCK_HIERARQUIA_PERMISSOES = {
+    "recebimento": {
+        "nome": "Recebimento",
+        "filhos": {
+            "rec_vis": {
+                "nome": "Visualizar página",
+                "filhos": {
+                    "rec_vis_qtd": {"nome": "Visualizar quantidades de itens a receber"}
+                }
+            },
+            "rec_painel": {
+                "nome": "Acessar painel de controle",
+                "filhos": {
+                    "rec_painel_edit": {"nome": "Editar dados principais"},
+                    "rec_painel_liberar": {"nome": "Liberar conferência"},
+                    "rec_painel_desfazer": {"nome": "Desfazer liberação"},
+                    "rec_painel_cancelar": {"nome": "Cancelar recebimento"},
+                    "rec_painel_concluir": {"nome": "Concluir recebimento"},
+                    "rec_painel_reconferencia": {"nome": "Solicitar reconferência"}
+                }
+            },
+            "rec_alt_destino": {"nome": "Alterar destino de itens"},
+            "rec_conf_pasta": {"nome": "Configurar pasta XMLs"},
+            "rec_vinc_sku": {"nome": "Vincular SKU"}
+        }
+    },
+    "produtos": {
+        "nome": "Produtos",
+        "filhos": {
+            "prod_prod": {
+                "nome": "Produtos",
+                "filhos": {
+                    "prod_vis": {
+                        "nome": "Visualizar página",
+                        "filhos": {
+                            "prod_edit": {
+                                "nome": "Editar",
+                                "filhos": {
+                                    "prod_edit_cad": {
+                                        "nome": "Editar cadastro",
+                                        "filhos": {
+                                            "prod_edit_cad_codfor": {"nome": "Editar cód. fornecedor"},
+                                            "prod_edit_cad_ref": {"nome": "Editar referência"},
+                                            "prod_edit_cad_emb": {
+                                                "nome": "Editar embalagens",
+                                                "filhos": {
+                                                    "prod_edit_cad_emb_dim": {"nome": "Editar dimensões"},
+                                                    "prod_edit_cad_emb_peso": {"nome": "Editar peso"},
+                                                    "prod_edit_cad_emb_gtin": {"nome": "Editar GTIN"}
+                                                }
+                                            }
+                                        }
+                                    },
+                                    "prod_edit_pol": {"nome": "Editar políticas"}
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "prod_fam": {
+                "nome": "Famílias",
+                "filhos": {
+                    "prod_fam_vis": {
+                        "nome": "Visualizar página",
+                        "filhos": {
+                            "prod_fam_edit": {"nome": "Criar e editar"},
+                            "prod_fam_del": {"nome": "Excluir famílias"}
+                        }
+                    }
+                }
+            },
+            "prod_vinc": {
+                "nome": "Vínculos de Fornecedores",
+                "filhos": {
+                    "prod_vinc_vis": {
+                        "nome": "Visualizar página",
+                        "filhos": {
+                            "prod_vinc_del": {"nome": "Excluir vínculo"}
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "estoque": {
+        "nome": "Estoque",
+        "filhos": {
+            "est_lpn": {
+                "nome": "Lpns",
+                "filhos": {
+                    "est_lpn_vis": {
+                        "nome": "Visualizar página",
+                        "filhos": {
+                            "est_lpn_gerar": {"nome": "Gerar LPNs"},
+                            "est_lpn_edit": {"nome": "Editar"},
+                            "est_lpn_del": {"nome": "Excluir"},
+                            "est_lpn_print": {"nome": "Reimprimir etiquetas"}
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "atividades": {
+        "nome": "Atividades",
+        "filhos": {
+            "ativ_conferir": {"nome": "Conferir"}
+        }
+    },
+    "configuracoes": {
+        "nome": "Configurações",
+        "filhos": {
+            "conf_acessos": {
+                "nome": "Acessos",
+                "filhos": {
+                    "conf_acessos_usu_vis": {
+                        "nome": "Visualizar página de usuários",
+                        "filhos": {
+                            "conf_acessos_usu_edit": {"nome": "Criar e editar"}
+                        }
+                    },
+                    "conf_acessos_perfis_vis": {
+                        "nome": "Visualizar página de perfis",
+                        "filhos": {
+                            "conf_acessos_perfis_edit": {"nome": "Criar e editar"}
+                        }
+                    }
+                }
+            },
+            "conf_locais": {
+                "nome": "Locais de Estoque",
+                "filhos": {
+                    "conf_locais_vis": {"nome": "Visualizar página"},
+                    "conf_locais_edit": {"nome": "Criar e editar"}
+                }
+            },
+            "conf_enderecos": {
+                "nome": "Endereços",
+                "filhos": {
+                    "conf_enderecos_vis": {
+                        "nome": "Visualizar página",
+                        "filhos": {
+                            "conf_enderecos_edit": {"nome": "Criar e editar"},
+                            "conf_enderecos_del": {"nome": "Excluir endereços"},
+                            "conf_enderecos_print": {"nome": "Imprimir etiquetas"},
+                            "conf_enderecos_areas": {"nome": "Criar e editar áreas"}
+                        }
+                    }
+                }
+            },
+            "conf_unidades": {
+                "nome": "Unidades de Medida",
+                "filhos": {
+                    "conf_unidades_vis": {
+                        "nome": "Visualizar página",
+                        "filhos": {
+                            "conf_unidades_edit": {"nome": "Criar e editar"},
+                            "conf_unidades_sinonimos": {"nome": "Configurar sinônimos XMLs"}
+                        }
+                    }
+                }
+            },
+            "conf_politicas": {
+                "nome": "Políticas Globais",
+                "filhos": {
+                    "conf_politicas_vis": {
+                        "nome": "Visualizar página",
+                        "filhos": {
+                            "conf_politicas_excecoes": {"nome": "Visualizar tabela de exceções"},
+                            "conf_politicas_config": {"nome": "Configurar políticas"}
+                        }
+                    }
+                }
+            },
+            "conf_impressao": {
+                "nome": "Impressão",
+                "filhos": {
+                    "conf_impressao_vis": {
+                        "nome": "Visualizar página",
+                        "filhos": {
+                            "conf_impressao_edit": {"nome": "Criar e editar"},
+                            "conf_impressao_del": {"nome": "Excluir impressoras"}
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 
-# Importar o repositório quando ele estiver pronto:
-# from database.repos.usuarios import PerfisRepo
 
+# =====================================================================
+# Componente: Nó de Árvore Colapsável
+# =====================================================================
+class CollapsiblePermissionNode(tk.Frame):
+    def __init__(self, parent, text, is_leaf=False, is_card_level=False, bg_color=Colors.BG_APP, perm_vars_dict=None,
+                 perm_key=None, on_toggle_callback=None):
+        super().__init__(parent, bg=bg_color)
+        self.expanded = False
+        self.is_leaf = is_leaf
+        self.child_nodes = []
+
+        self.on_toggle_callback = on_toggle_callback
+
+        self.var = tk.BooleanVar()
+        if perm_key and perm_vars_dict is not None:
+            perm_vars_dict[perm_key] = self.var
+
+        self.header = tk.Frame(self, bg=bg_color)
+        self.header.pack(fill="x")
+
+        if not is_leaf:
+            self.canvas_icon = tk.Canvas(self.header, width=20, height=20, bg=bg_color, highlightthickness=0,
+                                         cursor="hand2")
+            self.canvas_icon.pack(side="left", padx=(0, 4))
+            self.canvas_icon.bind("<Button-1>", self.toggle)
+            self._draw_arrow()
+        else:
+            tk.Frame(self.header, width=24, bg=bg_color).pack(side="left")
+
+        self.chk = BlueCheckButton(self.header, text=text, variable=self.var, bg=bg_color, command=self._on_check)
+        self.chk.pack(side="left", pady=4)
+
+        if is_card_level:
+            self.chk.itemconfigure(self.chk.find_withtag("text"), font=("Segoe UI", 11, "bold"))
+        elif not is_leaf:
+            self.chk.itemconfigure(self.chk.find_withtag("text"), font=("Segoe UI", 10, "bold"))
+        else:
+            self.chk.itemconfigure(self.chk.find_withtag("text"), font=("Segoe UI", 10))
+
+        if not is_leaf:
+            self.header.bind("<Button-1>", self.toggle)
+
+            self.content = tk.Frame(self, bg=bg_color)
+
+            indent_frame = tk.Frame(self.content, bg=bg_color, width=28)
+            indent_frame.pack(side="left", fill="y")
+            tk.Frame(indent_frame, bg=Colors.BORDER, width=1).pack(side="right", fill="y", pady=2, padx=10)
+
+            self.content_inner = tk.Frame(self.content, bg=bg_color)
+            self.content_inner.pack(side="left", fill="both", expand=True)
+
+    def _draw_arrow(self):
+        self.canvas_icon.delete("all")
+        if self.expanded:
+            # Seta para baixo, outline aplicado para suavizar os contornos
+            self.canvas_icon.create_polygon(4, 7, 16, 7, 10, 15, fill=Colors.PRIMARY, outline=Colors.PRIMARY, width=1)
+        else:
+            # Seta para a direita com outline para suavizar
+            self.canvas_icon.create_polygon(7, 4, 7, 16, 15, 10, fill=Colors.TEXT_HINT, outline=Colors.TEXT_HINT,
+                                            width=1)
+
+    def add_child(self, child_node):
+        self.child_nodes.append(child_node)
+        child_node.pack(fill="x")
+
+    def toggle(self, event=None):
+        if self.is_leaf: return
+        self.expanded = not self.expanded
+
+        self._draw_arrow()
+
+        if self.expanded:
+            self.content.pack(fill="both", expand=True, after=self.header)
+        else:
+            self.content.pack_forget()
+
+        if self.on_toggle_callback:
+            self.on_toggle_callback()
+
+    def _on_check(self):
+        state = self.var.get()
+        self._set_children_state(state)
+
+    def _set_children_state(self, state):
+        for child in self.child_nodes:
+            child.var.set(state)
+            child._set_children_state(state)
+
+
+# =====================================================================
+# Tela Principal de Perfis
+# =====================================================================
 class PerfisPage(Page):
     destroy_on_hide = False
 
@@ -22,21 +304,16 @@ class PerfisPage(Page):
         self.rowconfigure(0, weight=0)
         self.rowconfigure(1, weight=1)
 
-        # --- 1. Definição da Tabela ---
         cols = [
             {"id": "Nome", "title": "Nome", "type": "text", "width": 250, "anchor": "w"},
             {"id": "Descricao", "title": "Descrição", "type": "text", "width": 400, "anchor": "w"},
             {"id": "ativo_show", "title": "Status", "type": "text", "width": 100, "anchor": "center"},
         ]
 
-        # Função mockada para a tabela (Substitua por PerfisRepo().list() depois)
         def _fetch_mock(page: int, page_size: int, filters: list):
-            # Apenas o Administrador hardcoded inicial, exatamente como combinado!
             rows = [
-                {"Id": 1, "Nome": "Administrador", "Descricao": "Acesso total a todos os módulos",
-                 "Ativo": True}
+                {"Id": 1, "Nome": "Administrador", "Descricao": "Acesso total a todos os módulos", "Ativo": True}
             ]
-
             processed = []
             for r in rows:
                 r["ativo_show"] = "Ativo" if r["Ativo"] else "Inativo"
@@ -46,7 +323,6 @@ class PerfisPage(Page):
         self.table = StandardTable(self, columns=cols, fetch_fn=_fetch_mock, page_size=PAGE_SIZE_DEFAULT)
         self.table.grid(row=0, column=0, sticky="new")
 
-        # --- 2. Barra de Ferramentas ---
         left_box = self.table.left_actions
 
         self.btn_add = PillButton(left_box, text="", variant="primary", icon=load_icon("add", 16), padx=9,
@@ -80,18 +356,14 @@ class PerfisPage(Page):
     def _open_edit_dialog(self):
         sel = self.table.get_selected()
         if not sel: return
-
-        # Bloqueia a edição do perfil Administrador (ID 1 hardcoded)
         if sel.get("Id") == 1:
             self.alert("Acesso Negado", "O perfil Administrador padrão não pode ser editado.", type="warning")
             return
-
         self._open_perfil_modal("edit", sel)
 
     def _delete_selected(self):
         sel = self.table.get_selected()
         if not sel: return
-
         if sel.get("Id") == 1:
             self.alert("Acesso Negado", "O perfil Administrador padrão não pode ser excluído.", type="warning")
             return
@@ -102,7 +374,7 @@ class PerfisPage(Page):
         self.ask_yes_no("Confirmar exclusão", f"Excluir o perfil '{sel['Nome']}'?", on_yes=_confirmar)
 
     # =========================================================================
-    # MODAL DE CRIAÇÃO/EDIÇÃO E A ÁRVORE DE PERMISSÕES
+    # MODAL DE CRIAÇÃO/EDIÇÃO COM ÁRVORE DE PERMISSÕES COLAPSÁVEL
     # =========================================================================
     def _open_perfil_modal(self, mode="add", initial=None):
         titulo = "Novo Perfil de Acesso" if mode == "add" else "Editar Perfil"
@@ -111,7 +383,6 @@ class PerfisPage(Page):
         main_container = ttk.Frame(top.content, style="Main.TFrame")
         main_container.pack(fill="both", expand=True)
 
-        # --- 1. CABEÇALHO DO PERFIL ---
         frm_header = tk.Frame(main_container, bg=Colors.BG_APP)
         frm_header.pack(side="top", fill="x", padx=20, pady=(20, 10))
 
@@ -121,9 +392,10 @@ class PerfisPage(Page):
         ent_desc = TextField(frm_header, placeholder="Descrição", height=34)
         ent_desc.pack(side="left", fill="x", expand=True)
 
-        # --- 2. RODAPÉ COM BOTÃO SALVAR (Sempre empacotar o rodapé ANTES do Scroll!) ---
         frm_footer = ttk.Frame(main_container, style="Main.TFrame")
         frm_footer.pack(side="bottom", fill="x", padx=20, pady=20)
+
+        self.perm_vars = {}
 
         def _save():
             nome = ent_nome.get().strip()
@@ -131,19 +403,14 @@ class PerfisPage(Page):
                 top.alert("Atenção", "O nome do perfil é obrigatório.", focus_widget=ent_nome)
                 return
 
-            permissoes_selecionadas = {}
-            for k, var in self.perm_vars.items():
-                if var.get():
-                    permissoes_selecionadas[k] = True
-
-            # PerfisRepo().criar_perfil(nome, ent_desc.get(), permissoes_selecionadas)
+            permissoes_selecionadas = {k: var.get() for k, var in self.perm_vars.items() if var.get()}
+            print("Permissões salvas:", permissoes_selecionadas)
             self.alert("Sucesso", f"Perfil {nome} guardado com sucesso!", type="info")
             top.close()
 
         PillButton(frm_footer, text="Salvar Perfil", command=_save, variant="success").pack(side="right")
         PillButton(frm_footer, text="Cancelar", command=top.close, variant="outline").pack(side="right", padx=10)
 
-        # --- 3. ÁREA DE SCROLL MANUAL COM MinimalScrollbar ---
         frm_scroll = tk.Frame(main_container, bg=Colors.BG_APP)
         frm_scroll.pack(side="top", fill="both", expand=True, padx=20, pady=(0, 0))
 
@@ -157,78 +424,67 @@ class PerfisPage(Page):
         scroll_content = tk.Frame(canvas, bg=Colors.BG_APP)
         canvas_window = canvas.create_window((0, 0), window=scroll_content, anchor="nw")
 
-        def _on_frame_configure(e):
-            canvas.configure(scrollregion=canvas.bbox("all"))
+        scroll_content.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.bind("<Configure>", lambda e: canvas.itemconfig(canvas_window, width=e.width))
 
-        scroll_content.bind("<Configure>", _on_frame_configure)
-
-        def _on_canvas_configure(e):
-            canvas.itemconfig(canvas_window, width=e.width)
-
-        canvas.bind("<Configure>", _on_canvas_configure)
-
-        # Ativa o scroll pelo mouse nativo
         def _on_mousewheel(e):
+            if canvas.yview() == (0.0, 1.0):
+                return
+
             if e.num == 5 or getattr(e, "delta", 0) < 0:
-                canvas.yview_scroll(1, "units")
+                if canvas.yview()[1] < 1.0:
+                    canvas.yview_scroll(1, "units")
             elif e.num == 4 or getattr(e, "delta", 0) > 0:
-                canvas.yview_scroll(-1, "units")
+                if canvas.yview()[0] > 0.0:
+                    canvas.yview_scroll(-1, "units")
 
         canvas.bind("<Enter>", lambda e: canvas.bind_all("<MouseWheel>", _on_mousewheel))
         canvas.bind("<Leave>", lambda e: canvas.unbind_all("<MouseWheel>"))
 
-        tk.Label(scroll_content, text="Permissões do Sistema", font=("Segoe UI", 12, "bold"),
-                 bg=Colors.BG_APP, fg=Colors.PRIMARY).pack(anchor="w", pady=(0, 10))
+        tk.Label(scroll_content, text="Permissões do Sistema", font=("Segoe UI", 12, "bold"), bg=Colors.BG_APP,
+                 fg=Colors.PRIMARY).pack(anchor="w", pady=(0, 10))
 
-        # --- 4. RENDERIZAÇÃO DA ÁRVORE DE PERMISSÕES ---
-        self.perm_vars = {}
+        def build_tree(parent_ui, data_dict, bg_color, callback):
+            nodes = []
+            for key, info in data_dict.items():
+                is_leaf = "filhos" not in info
+                node = CollapsiblePermissionNode(
+                    parent_ui, text=info["nome"], is_leaf=is_leaf,
+                    bg_color=bg_color, perm_vars_dict=self.perm_vars, perm_key=key,
+                    on_toggle_callback=callback
+                )
+                if not is_leaf:
+                    children = build_tree(node.content_inner, info["filhos"], bg_color, callback)
+                    for child in children:
+                        node.add_child(child)
+                nodes.append(node)
+            return nodes
 
-        def _toggle_all(var_master, vars_children):
-            estado = var_master.get()
-            for v_child in vars_children:
-                v_child.set(estado)
-
-        def _check_children(var_master, vars_children):
-            todas_marcadas = all(v.get() for v in vars_children)
-            var_master.set(todas_marcadas)
-
-        for mod_key, mod_info in DICIONARIO_PERMISSOES.items():
-            card = RoundedCard(scroll_content, padding=(16, 16, 16, 16), radius=8)
+        for mod_key, mod_info in MOCK_HIERARQUIA_PERMISSOES.items():
+            card = RoundedCard(scroll_content, padding=(10, 10, 10, 10), radius=8)
             card.pack(fill="x", pady=(0, 15))
 
-            var_mod = tk.BooleanVar()
-            acoes_vars = []
+            def make_callback(c=card):
+                def _cb():
+                    c.update_idletasks()
+                    c._size_to_content()
 
-            # ATENÇÃO: O 'command' deve ser passado AQUI na criação do componente
-            chk_mod = BlueCheckButton(
-                card.content, text=mod_info["nome"], variable=var_mod, bg=Colors.BG_CARD,
-                command=lambda v_m=var_mod, v_c=acoes_vars: _toggle_all(v_m, v_c)
+                return _cb
+
+            update_callback = make_callback(card)
+
+            root_node = CollapsiblePermissionNode(
+                card.content, text=mod_info["nome"], is_leaf=False, is_card_level=True,
+                bg_color=Colors.BG_CARD, perm_vars_dict=self.perm_vars, perm_key=mod_key,
+                on_toggle_callback=update_callback
             )
-            chk_mod.pack(anchor="w", pady=(0, 8))
-            chk_mod.itemconfigure(chk_mod.find_withtag("text"), font=("Segoe UI", 10, "bold"))
+            root_node.pack(fill="x")
 
-            CardSectionSeparator(card.content).pack(fill="x", pady=(0, 10))
+            if "filhos" in mod_info:
+                children = build_tree(root_node.content_inner, mod_info["filhos"], Colors.BG_CARD, update_callback)
+                for child in children:
+                    root_node.add_child(child)
 
-            frm_acoes = tk.Frame(card.content, bg=Colors.BG_CARD)
-            frm_acoes.pack(fill="x", padx=(28, 0))
-
-            for acao_key, acao_nome in mod_info["acoes"].items():
-                var_acao = tk.BooleanVar()
-                self.perm_vars[acao_key] = var_acao
-                acoes_vars.append(var_acao)
-
-                chk_acao = BlueCheckButton(
-                    frm_acoes, text=acao_nome, variable=var_acao, bg=Colors.BG_CARD,
-                    command=lambda v_m=var_mod, v_c=acoes_vars: _check_children(v_m, v_c)
-                )
-                chk_acao.pack(anchor="w", pady=4)
-
-            # FORÇA MÁGICA: Obriga o Canvas do Card a recalcular sua altura
-            # logo após os itens serem colocados dentro dele, para não sumir.
-            card.update_idletasks()
-            card._size_to_content()
-
-        # --- PREENCHIMENTO SE FOR EDIÇÃO ---
         if mode == "edit" and initial:
             ent_nome.insert(0, initial.get("Nome", ""))
             ent_desc.insert(0, initial.get("Descricao", ""))
