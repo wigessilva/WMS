@@ -10,9 +10,10 @@ class PerfisRepo(BaseRepo):
 
     # Cria um novo perfil no banco de dados convertendo o dicionario de permissoes em JSON
     def criar_perfil(self, nome, descricao, permissoes_dict):
+        # Removemos o Ativo do INSERT
         query = '''
-            INSERT INTO Perfis (Nome, Descricao, Permissoes, Ativo) 
-            VALUES (?, ?, ?, 1)
+            INSERT INTO Perfis (Nome, Descricao, Permissoes) 
+            VALUES (?, ?, ?)
         '''
         permissoes_json = json.dumps(permissoes_dict)
         self.execute_non_query(query, (nome, descricao, permissoes_json))
@@ -69,12 +70,12 @@ class UsuariosRepo(BaseRepo):
 
     # Verifica o login e a senha, trazendo as permissoes do perfil atrelado em uma unica consulta
     def autenticar(self, login, senha_plana):
-        # Usando aspas simples triplas para query multi-linha
+        # Removemos o p.Ativo = 1 do final da query
         query = '''
             SELECT u.Id, u.Nome, u.SenhaHash, p.Permissoes 
             FROM Usuarios u 
             INNER JOIN Perfis p ON u.PerfilId = p.Id 
-            WHERE u.Login = ? AND u.Ativo = 1 AND p.Ativo = 1
+            WHERE u.Login = ? AND u.Ativo = 1
         '''
         resultado = self.execute_query(query, (login,))
 
@@ -86,7 +87,9 @@ class UsuariosRepo(BaseRepo):
             # Valida o hash com a senha digitada
             if bcrypt.checkpw(senha_digitada, senha_hash_db):
                 # Atualiza a data e hora do ultimo login
-                self.execute_non_query("UPDATE Usuarios SET UltimoLogin = DATEADD(HOUR, -3, GETUTCDATE()) WHERE Id = ?", (usuario['Id'],))
+                self.execute_non_query(
+                    "UPDATE Usuarios SET UltimoLogin = DATEADD(HOUR, -3, GETUTCDATE()) WHERE Id = ?",
+                    (usuario['Id'],))
 
                 return {
                     "id": usuario['Id'],

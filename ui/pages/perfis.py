@@ -314,20 +314,14 @@ class PerfisPage(Page):
 
         cols = [
             {"id": "Nome", "title": "Nome", "type": "text", "width": 250, "anchor": "w"},
-            {"id": "Descricao", "title": "Descrição", "type": "text", "width": 400, "anchor": "w"},
-            {"id": "ativo_show", "title": "Status", "type": "text", "width": 100, "anchor": "center"},
+            {"id": "Descricao", "title": "Descrição", "type": "text", "width": 500, "anchor": "w"},
         ]
 
         def _fetch_data(page: int, page_size: int, filters: list):
             total, rows = perfis_repo.list(page, page_size, filters)
-            processed = []
-            for r in rows:
-                r["ativo_show"] = "Ativo" if r.get("Ativo") else "Inativo"
-                processed.append(r)
-            return total, processed
+            return total, rows
 
         self.table = StandardTable(self, columns=cols, fetch_fn=_fetch_data, page_size=PAGE_SIZE_DEFAULT)
-
         self.table.grid(row=0, column=0, sticky="new")
 
         left_box = self.table.left_actions
@@ -369,14 +363,43 @@ class PerfisPage(Page):
     def _delete_selected(self):
         sel = self.table.get_selected()
         if not sel: return
-        if sel.get("Id") == 1:
+
+        perfil_id = sel.get("Id")
+        nome_perfil = sel.get("Nome")
+
+        if perfil_id == 1:
             self.alert("Acesso Negado", "O perfil Administrador padrão não pode ser excluído.", type="warning")
             return
 
-        def _confirmar():
-            self.alert("Sucesso", f"Perfil {sel['Nome']} excluído (Mock)", type="info")
+        # 1. Verificação de Integridade: Impede excluir perfis em uso
+        try:
+            res = perfis_repo.execute_query("SELECT COUNT(Id) as Qtd FROM Usuarios WHERE PerfilId = ?", (perfil_id,))
+            qtd_usuarios = res[0]["Qtd"] if res else 0
 
-        self.ask_yes_no("Confirmar exclusão", f"Excluir o perfil '{sel['Nome']}'?", on_yes=_confirmar)
+            if qtd_usuarios > 0:
+                self.alert("Operação Bloqueada", "Não é possível excluir, há usuários utilizando este perfil.",
+                           type="error")
+                return
+        except Exception as e:
+            self.alert("Erro", f"Falha ao verificar vínculo com usuários:\n{str(e)}", type="error")
+            return
+
+        # 2. Exclusão Real
+        def _confirmar():
+            try:
+                perfis_repo.delete(perfil_id)
+                self.alert("Sucesso", f"Perfil '{nome_perfil}' excluído com sucesso!", type="success")
+
+                # Desabilita os botões e recarrega a tabela
+                self.btn_edit.state(["disabled"])
+                self.btn_del.state(["disabled"])
+                self.table.load_page(1)
+            except Exception as e:
+                self.alert("Erro de Sistema", f"Falha ao excluir o perfil:\n{str(e)}", type="error")
+
+        self.ask_yes_no("Confirmar exclusão",
+                        f"Deseja realmente excluir o perfil '{nome_perfil}'?\nEsta ação não pode ser desfeita.",
+                        on_yes=_confirmar)
 
     # =========================================================================
     # MODAL DE CRIAÇÃO/EDIÇÃO COM ÁRVORE DE PERMISSÕES COLAPSÁVEL

@@ -116,24 +116,16 @@ class CadastroProdutosPage(Page):
         self.btn_edit.pack(side="left", padx=(0, 10))
         self.btn_edit.state(["disabled"])
 
-        self.btn_del = PillButton(left_box, text="", variant="outline", icon=load_icon("delete", 16), padx=9,
-                                  command=self._delete_selected)
-        self.btn_del.pack(side="left", padx=(0, 10))
-        self.btn_del.state(["disabled"])
-
         self.table.bind("<<TableSelect>>", self._on_selection_change)
         self.table.bind("<<TableDoubleClick>>", lambda e: self._open_edit_dialog())
         self.table.bind("<Return>", lambda e: self._open_edit_dialog())
-        self.table.bind("<Delete>", lambda e: self._delete_selected())
 
     def _on_selection_change(self, _e=None):
         has_sel = (self.table.get_selected() is not None)
         if has_sel:
             self.btn_edit.state(["!disabled"])
-            self.btn_del.state(["!disabled"])
         else:
             self.btn_edit.state(["disabled"])
-            self.btn_del.state(["disabled"])
 
     def on_show(self, **kwargs):
         self.table.load_page(1)
@@ -1549,35 +1541,6 @@ class CadastroProdutosPage(Page):
         self._tab_buttons["cadastro"].configure(variant="tab_selected")
         self._tab_frames["parametros"].grid_remove()
         ent_sku.focus_set()
-
-    def _delete_selected(self):
-
-        sku = self._selected_sku()
-        if not sku:
-            return
-
-        if products_repo.tem_movimentacao(sku):
-            self.alert(
-                "Ação bloqueada",
-                f"Não é possível excluir o '{sku}' pois ele possui movimentações.\n\n"
-                "Por favor, altere o status para Inativo.", type="warning"
-            )
-            return
-
-        def _confirmar():
-            try:
-                products_repo.delete(sku)
-                self.table.load_page(self.table.page)
-                self.alert("Sucesso", "Produto excluído.", type="info")
-            except ValueError as e:
-                self.alert("Atenção", str(e), type="warning")
-
-        # Chama a pergunta
-        self.ask_yes_no(
-            title="Confirmar exclusão",
-            message=f"Excluir o produto “{sku}”?\nEsta ação não pode ser desfeita.",
-            on_yes=_confirmar
-        )
 
     def _selected_sku(self):
 

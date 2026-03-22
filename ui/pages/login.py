@@ -108,17 +108,24 @@ class LoginWindow(tk.Toplevel):
         self.lbl_erro.config(text="Autenticando...", fg=Colors.TEXT_HINT)
         self.update()
 
-        usuario = usuarios_repo.autenticar(login, senha)
+        try:
+            # A tentativa de login agora está protegida
+            usuario = usuarios_repo.autenticar(login, senha)
 
-        if usuario:
-            self._salvar_ultimo_login(login)
-            sessao.iniciar_login(usuario["id"], usuario["nome"], usuario["permissoes"])
-            self.on_success()
-            self.destroy()
-        else:
-            self.lbl_erro.config(text="Usuário ou senha incorretos.", fg=Colors.DANGER)
-            self.ent_senha.delete(0, 'end')
-            self.ent_senha.focus_set()
+            if usuario:
+                self._salvar_ultimo_login(login)
+                sessao.iniciar_login(usuario["id"], usuario["nome"], usuario["permissoes"])
+                self.on_success()
+                self.destroy()
+            else:
+                self.lbl_erro.config(text="Usuário ou senha incorretos.", fg=Colors.DANGER)
+                self.ent_senha.delete(0, 'end')
+                self.ent_senha.focus_set()
+
+        except Exception as e:
+            # Se o banco de dados ou o código quebrar, ele te avisa aqui!
+            self.lbl_erro.config(text=f"Erro de sistema: {str(e)}", fg=Colors.DANGER)
+            print(f"Erro detalhado no login: {str(e)}")  # Também joga no terminal para ajudar
 
     def _on_close(self):
         self.master.destroy()
