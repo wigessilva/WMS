@@ -23,22 +23,13 @@ class SessaoAtual:
     def esta_logado(self):
         return self.usuario_id is not None
 
-    def tem_permissao(self, modulo, acao_chave=None):
+    def tem_permissao(self, permissao_chave):
         # 1. Se for o Super Admin (o hash que criamos no SQL), pode tudo
         if self.permissoes.get("admin_total") is True:
             return True
 
-        # 2. Verifica se o usuario tem acesso ao modulo (a "pasta")
-        if modulo not in self.permissoes:
-            return False
-
-        # Se a verificacao for apenas para o modulo (ex: exibir o botao no menu lateral)
-        if acao_chave is None:
-            return True
-
-        # 3. Verifica a acao especifica (o checkbox) dentro do modulo
-        acoes_permitidas = self.permissoes[modulo].get("acoes", [])
-        return acao_chave in acoes_permitidas
+        # 2. Verifica a chave plana especifica que salvamos no banco
+        return self.permissoes.get(permissao_chave, False) is True
 
 # Instanciamos a sessao aqui para que ela funcione como uma variavel global.
 # Qualquer arquivo do sistema so precisa importar esta variavel 'sessao'.

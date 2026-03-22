@@ -681,24 +681,24 @@ class App(ttk.Frame):
         # ====================================================================
         from utils.session import sessao
 
-        # Mapeia o nome da tela na sidebar para a chave de permissão no banco
+        # Mapeia o nome da tela na sidebar para a chave de permissão plana
         mapa_permissoes = {
-            "Cadastro de Produtos": "produtos",
-            "Famílias": "produtos",
-            "Vínculos de Fornecedores": "produtos",
-            "Recebimento": "recebimento",
-            "LPNs": "estoque",
-            "Endereços": "configuracoes",
-            "Locais de Estoque": "configuracoes",
-            "Unidades de Medida": "configuracoes",
-            "Políticas Globais": "configuracoes",
-            "Impressão": "configuracoes",
-            "Usuários": "configuracoes",
-            "Perfis": "configuracoes",
-            "Atividades": "atividades",
-            "Expedição": "expedicao",
-            "Pedidos": "pedidos",
-            "Relatórios": "relatorios"
+            "Cadastro de Produtos": "prod_vis",
+            "Famílias": "prod_fam_vis",
+            "Vínculos de Fornecedores": "prod_vinc_vis",
+            "Recebimento": "rec_vis",
+            "LPNs": "est_lpn_vis",
+            "Endereços": "conf_enderecos_vis",
+            "Locais de Estoque": "conf_locais_vis",
+            "Unidades de Medida": "conf_unidades_vis",
+            "Políticas Globais": "conf_politicas_vis",
+            "Impressão": "conf_impressao_vis",
+            "Usuários": "conf_acessos_usu_vis",
+            "Perfis": "conf_acessos_perfis_vis",
+            "Atividades": "ativ_conferir",
+            "Expedição": "exp_vis",  # Chave provisoria
+            "Pedidos": "ped_vis",  # Chave provisoria
+            "Relatórios": "rel_vis"  # Chave provisoria
         }
 
         perm_necessaria = mapa_permissoes.get(name)
@@ -709,8 +709,8 @@ class App(ttk.Frame):
             tem_acesso = sessao.permissoes.get(perm_necessaria, False)
 
             if not is_admin and not tem_acesso:
-                self.show_toast("Você não possui autorização para acessar esta página. Contate o administrador.")
-                return # Trava a execução aqui e impede a tela de mudar
+                self.show_toast("Você não possui permissão para acessar esta página. Contate o administrador.")
+                return  # Trava a execução aqui e impede a tela de mudar
         # ====================================================================
 
         if self.current_page_name:
@@ -931,7 +931,7 @@ def main():
                 # 1. Cria o perfil Administrador com acesso total
                 permissoes_json = '{"recebimento": true, "produtos": true, "estoque": true, "atividades": true, "configuracoes": true}'
                 usuarios_repo.execute_non_query(
-                    "INSERT INTO Perfis (Nome, Descricao, Permissoes, Ativo) VALUES ('Administrador', 'Acesso total ao sistema', ?, 1)",
+                    "INSERT INTO Perfis (Nome, Descricao, Permissoes) VALUES ('Administrador', 'Acesso total ao sistema', ?)",
                     (permissoes_json,)
                 )
 

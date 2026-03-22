@@ -21,7 +21,8 @@ class UsuarioDialog(SaaSModal):
 
         # Busca os perfis ativos direto do banco para popular a Combobox
         # Criamos um mapa { "Nome do Perfil": Id } para facilitar na hora de salvar
-        res_perfis = usuarios_repo.execute_query("SELECT Id, Nome FROM Perfis WHERE Ativo=1 ORDER BY Nome")
+        res_perfis = usuarios_repo.execute_query("SELECT Id, Nome FROM Perfis ORDER BY Nome")
+
         self.perfis_map = {p["Nome"]: p["Id"] for p in res_perfis} if res_perfis else {}
         lista_perfis = list(self.perfis_map.keys())
 

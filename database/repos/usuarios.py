@@ -18,6 +18,14 @@ class PerfisRepo(BaseRepo):
         permissoes_json = json.dumps(permissoes_dict)
         self.execute_non_query(query, (nome, descricao, permissoes_json))
 
+    def update(self, uid, Nome, Descricao, Permissoes):
+        query = "UPDATE Perfis SET Nome = ?, Descricao = ?, Permissoes = ? WHERE Id = ?"
+        self.execute_non_query(query, (Nome, Descricao, Permissoes, uid))
+
+    def delete(self, uid):
+        query = "DELETE FROM Perfis WHERE Id = ?"
+        self.execute_non_query(query, (uid,))
+
     # Retorna as permissoes de um perfil especifico ja convertidas para dicionario Python
     def obter_permissoes(self, perfil_id):
         query = "SELECT Permissoes FROM Perfis WHERE Id = ?"
@@ -111,3 +119,7 @@ class UsuariosRepo(BaseRepo):
             VALUES (?, ?, ?, ?, ?)
         '''
         self.execute_non_query(query, (perfil_id, nome, login, senha_hash, usuario_logado_id))
+
+    def update(self, uid, Nome, Login, PerfilId, Ativo):
+        query = "UPDATE Usuarios SET Nome = ?, Login = ?, PerfilId = ?, Ativo = ? WHERE Id = ?"
+        self.execute_non_query(query, (Nome, Login, PerfilId, Ativo, uid))

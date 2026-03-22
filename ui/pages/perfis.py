@@ -12,195 +12,82 @@ import json
 from database.repositories import perfis_repo
 
 # =====================================================================
-# Dicionário Hierárquico de Permissões
+# Dicionário Hierárquico de Permissões (Estrutura Achatada)
 # =====================================================================
 MOCK_HIERARQUIA_PERMISSOES = {
     "recebimento": {
-        "nome": "Recebimento",
-        "filhos": {
-            "rec_vis": {
-                "nome": "Visualizar página",
-                "filhos": {
-                    "rec_vis_qtd": {"nome": "Visualizar quantidades de itens a receber"}
-                }
-            },
-            "rec_painel": {
-                "nome": "Acessar painel de controle",
-                "filhos": {
-                    "rec_painel_edit": {"nome": "Editar dados principais"},
-                    "rec_painel_liberar": {"nome": "Liberar conferência"},
-                    "rec_painel_desfazer": {"nome": "Desfazer liberação"},
-                    "rec_painel_cancelar": {"nome": "Cancelar recebimento"},
-                    "rec_painel_concluir": {"nome": "Concluir recebimento"},
-                    "rec_painel_reconferencia": {"nome": "Solicitar reconferência"}
-                }
-            },
+        "titulo": "Recebimento",
+        "itens": {
+            "rec_vis": {"nome": "Visualizar página de recebimento"},
+            "rec_vis_qtd": {"nome": "Visualizar quantidades de itens a receber"},
+            "rec_painel": {"nome": "Acessar painel de controle"},
+            "rec_painel_edit": {"nome": "Editar dados principais"},
+            "rec_painel_liberar": {"nome": "Liberar conferência"},
+            "rec_painel_desfazer": {"nome": "Desfazer liberação"},
+            "rec_painel_cancelar": {"nome": "Cancelar recebimento"},
+            "rec_painel_concluir": {"nome": "Concluir recebimento"},
+            "rec_painel_reconferencia": {"nome": "Solicitar reconferência"},
             "rec_alt_destino": {"nome": "Alterar destino de itens"},
             "rec_conf_pasta": {"nome": "Configurar pasta XMLs"},
             "rec_vinc_sku": {"nome": "Vincular SKU"}
         }
     },
     "produtos": {
-        "nome": "Produtos",
-        "filhos": {
-            "prod_prod": {
-                "nome": "Produtos",
-                "filhos": {
-                    "prod_vis": {
-                        "nome": "Visualizar página",
-                        "filhos": {
-                            "prod_edit": {
-                                "nome": "Editar",
-                                "filhos": {
-                                    "prod_edit_cad": {
-                                        "nome": "Editar cadastro",
-                                        "filhos": {
-                                            "prod_edit_cad_codfor": {"nome": "Editar cód. fornecedor"},
-                                            "prod_edit_cad_ref": {"nome": "Editar referência"},
-                                            "prod_edit_cad_emb": {
-                                                "nome": "Editar embalagens",
-                                                "filhos": {
-                                                    "prod_edit_cad_emb_dim": {"nome": "Editar dimensões"},
-                                                    "prod_edit_cad_emb_peso": {"nome": "Editar peso"},
-                                                    "prod_edit_cad_emb_gtin": {"nome": "Editar GTIN"}
-                                                }
-                                            }
-                                        }
-                                    },
-                                    "prod_edit_pol": {"nome": "Editar políticas"}
-                                }
-                            }
-                        }
-                    }
-                }
-            },
-            "prod_fam": {
-                "nome": "Famílias",
-                "filhos": {
-                    "prod_fam_vis": {
-                        "nome": "Visualizar página",
-                        "filhos": {
-                            "prod_fam_edit": {"nome": "Criar e editar"},
-                            "prod_fam_del": {"nome": "Excluir famílias"}
-                        }
-                    }
-                }
-            },
-            "prod_vinc": {
-                "nome": "Vínculos de Fornecedores",
-                "filhos": {
-                    "prod_vinc_vis": {
-                        "nome": "Visualizar página",
-                        "filhos": {
-                            "prod_vinc_del": {"nome": "Excluir vínculo"}
-                        }
-                    }
-                }
-            }
+        "titulo": "Gestão de Produtos",
+        "itens": {
+            "prod_vis": {"nome": "Visualizar página de produtos"},
+            "prod_edit_cad_codfor": {"nome": "Editar cód. fornecedor"},
+            "prod_edit_cad_ref": {"nome": "Editar referência"},
+            "prod_edit_cad_emb_dim": {"nome": "Editar dimensões"},
+            "prod_edit_cad_emb_peso": {"nome": "Editar peso"},
+            "prod_edit_cad_emb_gtin": {"nome": "Editar GTIN"},
+            "prod_edit_pol": {"nome": "Editar políticas"},
+            "prod_fam_vis": {"nome": "Visualizar página de famílias"},
+            "prod_fam_edit": {"nome": "Criar e editar famílias"},
+            "prod_fam_del": {"nome": "Excluir famílias"},
+            "prod_vinc_vis": {"nome": "Visualizar página de vínculos de fornecedores"},
+            "prod_vinc_del": {"nome": "Excluir vínculo"}
         }
     },
     "estoque": {
-        "nome": "Estoque",
-        "filhos": {
-            "est_lpn": {
-                "nome": "Lpns",
-                "filhos": {
-                    "est_lpn_vis": {
-                        "nome": "Visualizar página",
-                        "filhos": {
-                            "est_lpn_gerar": {"nome": "Gerar LPNs"},
-                            "est_lpn_edit": {"nome": "Editar"},
-                            "est_lpn_del": {"nome": "Excluir"},
-                            "est_lpn_print": {"nome": "Reimprimir etiquetas"}
-                        }
-                    }
-                }
-            }
+        "titulo": "Estoque",
+        "itens": {
+            "est_lpn_vis": {"nome": "Visualizar página de LPNs"},
+            "est_lpn_gerar": {"nome": "Gerar LPNs"},
+            "est_lpn_edit": {"nome": "Editar LPNs"},
+            "est_lpn_del": {"nome": "Excluir LPNs"},
+            "est_lpn_print": {"nome": "Reimprimir etiquetas"}
         }
     },
     "atividades": {
-        "nome": "Atividades",
-        "filhos": {
+        "titulo": "Atividades",
+        "itens": {
             "ativ_conferir": {"nome": "Conferir"}
         }
     },
     "configuracoes": {
-        "nome": "Configurações",
-        "filhos": {
-            "conf_acessos": {
-                "nome": "Acessos",
-                "filhos": {
-                    "conf_acessos_usu_vis": {
-                        "nome": "Visualizar página de usuários",
-                        "filhos": {
-                            "conf_acessos_usu_edit": {"nome": "Criar e editar"}
-                        }
-                    },
-                    "conf_acessos_perfis_vis": {
-                        "nome": "Visualizar página de perfis",
-                        "filhos": {
-                            "conf_acessos_perfis_edit": {"nome": "Criar e editar"}
-                        }
-                    }
-                }
-            },
-            "conf_locais": {
-                "nome": "Locais de Estoque",
-                "filhos": {
-                    "conf_locais_vis": {"nome": "Visualizar página"},
-                    "conf_locais_edit": {"nome": "Criar e editar"}
-                }
-            },
-            "conf_enderecos": {
-                "nome": "Endereços",
-                "filhos": {
-                    "conf_enderecos_vis": {
-                        "nome": "Visualizar página",
-                        "filhos": {
-                            "conf_enderecos_edit": {"nome": "Criar e editar"},
-                            "conf_enderecos_del": {"nome": "Excluir endereços"},
-                            "conf_enderecos_print": {"nome": "Imprimir etiquetas"},
-                            "conf_enderecos_areas": {"nome": "Criar e editar áreas"}
-                        }
-                    }
-                }
-            },
-            "conf_unidades": {
-                "nome": "Unidades de Medida",
-                "filhos": {
-                    "conf_unidades_vis": {
-                        "nome": "Visualizar página",
-                        "filhos": {
-                            "conf_unidades_edit": {"nome": "Criar e editar"},
-                            "conf_unidades_sinonimos": {"nome": "Configurar sinônimos XMLs"}
-                        }
-                    }
-                }
-            },
-            "conf_politicas": {
-                "nome": "Políticas Globais",
-                "filhos": {
-                    "conf_politicas_vis": {
-                        "nome": "Visualizar página",
-                        "filhos": {
-                            "conf_politicas_excecoes": {"nome": "Visualizar tabela de exceções"},
-                            "conf_politicas_config": {"nome": "Configurar políticas"}
-                        }
-                    }
-                }
-            },
-            "conf_impressao": {
-                "nome": "Impressão",
-                "filhos": {
-                    "conf_impressao_vis": {
-                        "nome": "Visualizar página",
-                        "filhos": {
-                            "conf_impressao_edit": {"nome": "Criar e editar"},
-                            "conf_impressao_del": {"nome": "Excluir impressoras"}
-                        }
-                    }
-                }
-            }
+        "titulo": "Configurações",
+        "itens": {
+            "conf_acessos_usu_vis": {"nome": "Visualizar página de usuários"},
+            "conf_acessos_usu_edit": {"nome": "Criar e editar usuários"},
+            "conf_acessos_perfis_vis": {"nome": "Visualizar página de perfis"},
+            "conf_acessos_perfis_edit": {"nome": "Criar e editar perfis"},
+            "conf_locais_vis": {"nome": "Visualizar página de locais de estoque"},
+            "conf_locais_edit": {"nome": "Criar e editar locais de estoque"},
+            "conf_enderecos_vis": {"nome": "Visualizar página de endereços"},
+            "conf_enderecos_edit": {"nome": "Criar e editar endereços"},
+            "conf_enderecos_del": {"nome": "Excluir endereços"},
+            "conf_enderecos_print": {"nome": "Imprimir etiquetas de endereços"},
+            "conf_enderecos_areas": {"nome": "Criar e editar áreas"},
+            "conf_unidades_vis": {"nome": "Visualizar página de unidades de medida"},
+            "conf_unidades_edit": {"nome": "Criar e editar unidades de medida"},
+            "conf_unidades_sinonimos": {"nome": "Configurar sinônimos XMLs"},
+            "conf_politicas_vis": {"nome": "Visualizar página de políticas globais"},
+            "conf_politicas_excecoes": {"nome": "Visualizar tabela de exceções"},
+            "conf_politicas_config": {"nome": "Configurar políticas"},
+            "conf_impressao_vis": {"nome": "Visualizar página de impressão"},
+            "conf_impressao_edit": {"nome": "Criar e editar impressoras"},
+            "conf_impressao_del": {"nome": "Excluir impressoras"}
         }
     }
 }
@@ -232,8 +119,8 @@ class CollapsiblePermissionNode(tk.Frame):
             self.canvas_icon.pack(side="left", padx=(0, 4))
             self.canvas_icon.bind("<Button-1>", self.toggle)
             self._draw_arrow()
-        else:
-            tk.Frame(self.header, width=24, bg=bg_color).pack(side="left")
+
+        # O block else foi removido para tirar a indentação de 24px em nós folha, já que a estrutura agora é plana.
 
         self.chk = BlueCheckButton(self.header, text=text, variable=self.var, bg=bg_color, command=self._on_check)
 
@@ -402,7 +289,7 @@ class PerfisPage(Page):
                         on_yes=_confirmar)
 
     # =========================================================================
-    # MODAL DE CRIAÇÃO/EDIÇÃO COM ÁRVORE DE PERMISSÕES COLAPSÁVEL
+    # MODAL DE CRIAÇÃO/EDIÇÃO COM LISTA DE PERMISSÕES PLANA
     # =========================================================================
     def _open_perfil_modal(self, mode="add", initial=None):
         # Identifica se é o perfil padrão do sistema (ID 1)
@@ -506,46 +393,23 @@ class PerfisPage(Page):
         # Estado a ser repassado para a criação das caixinhas
         node_state = "disabled" if is_readonly else "normal"
 
-        def build_tree(parent_ui, data_dict, bg_color, callback):
-            nodes = []
-            for key, info in data_dict.items():
-                is_leaf = "filhos" not in info
-                node = CollapsiblePermissionNode(
-                    parent_ui, text=info["nome"], is_leaf=is_leaf,
-                    bg_color=bg_color, perm_vars_dict=self.perm_vars, perm_key=key,
-                    on_toggle_callback=callback, state=node_state
-                )
-                if not is_leaf:
-                    children = build_tree(node.content_inner, info["filhos"], bg_color, callback)
-                    for child in children:
-                        node.add_child(child)
-                nodes.append(node)
-            return nodes
-
         for mod_key, mod_info in MOCK_HIERARQUIA_PERMISSOES.items():
+
+            # Subtítulo de seção fora do Card
+            tk.Label(scroll_content, text=mod_info["titulo"], font=("Segoe UI", 11, "bold"),
+                     bg=Colors.BG_APP, fg=Colors.TEXT_HINT).pack(anchor="w", pady=(10, 5), padx=5)
+
             card = RoundedCard(scroll_content, padding=(10, 10, 10, 10), radius=8)
-            card.pack(fill="x", pady=(0, 15))
+            card.pack(fill="x", pady=(0, 10))
 
-            def make_callback(c=card):
-                def _cb():
-                    c.update_idletasks()
-                    c._size_to_content()
-
-                return _cb
-
-            update_callback = make_callback(card)
-
-            root_node = CollapsiblePermissionNode(
-                card.content, text=mod_info["nome"], is_leaf=False, is_card_level=True,
-                bg_color=Colors.BG_CARD, perm_vars_dict=self.perm_vars, perm_key=mod_key,
-                on_toggle_callback=update_callback, state=node_state
-            )
-            root_node.pack(fill="x")
-
-            if "filhos" in mod_info:
-                children = build_tree(root_node.content_inner, mod_info["filhos"], Colors.BG_CARD, update_callback)
-                for child in children:
-                    root_node.add_child(child)
+            # Montagem das checkboxes achatadas dentro do card
+            for item_key, item_info in mod_info["itens"].items():
+                node = CollapsiblePermissionNode(
+                    card.content, text=item_info["nome"], is_leaf=True,
+                    bg_color=Colors.BG_CARD, perm_vars_dict=self.perm_vars, perm_key=item_key,
+                    state=node_state
+                )
+                node.pack(fill="x")
 
         if mode == "edit" and initial:
             # Usa tk.NORMAL momentaneamente só para injetar o texto antes de travar
