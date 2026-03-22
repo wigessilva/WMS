@@ -8,6 +8,9 @@ from ui.components import (
 from utils.constants import Colors, PAGE_SIZE_DEFAULT
 from utils.helpers import load_icon
 
+import json
+from database.repositories import perfis_repo
+
 # =====================================================================
 # Dicionário Hierárquico de Permissões
 # =====================================================================
@@ -310,17 +313,16 @@ class PerfisPage(Page):
             {"id": "ativo_show", "title": "Status", "type": "text", "width": 100, "anchor": "center"},
         ]
 
-        def _fetch_mock(page: int, page_size: int, filters: list):
-            rows = [
-                {"Id": 1, "Nome": "Administrador", "Descricao": "Acesso total a todos os módulos", "Ativo": True}
-            ]
+        def _fetch_data(page: int, page_size: int, filters: list):
+            total, rows = perfis_repo.list(page, page_size, filters)
             processed = []
             for r in rows:
-                r["ativo_show"] = "Ativo" if r["Ativo"] else "Inativo"
+                r["ativo_show"] = "Ativo" if r.get("Ativo") else "Inativo"
                 processed.append(r)
-            return len(processed), processed
+            return total, processed
 
-        self.table = StandardTable(self, columns=cols, fetch_fn=_fetch_mock, page_size=PAGE_SIZE_DEFAULT)
+        self.table = StandardTable(self, columns=cols, fetch_fn=_fetch_data, page_size=PAGE_SIZE_DEFAULT)
+
         self.table.grid(row=0, column=0, sticky="new")
 
         left_box = self.table.left_actions
@@ -399,14 +401,37 @@ class PerfisPage(Page):
 
         def _save():
             nome = ent_nome.get().strip()
+            descricao = ent_desc.get().strip()
             if not nome:
                 top.alert("Atenção", "O nome do perfil é obrigatório.", focus_widget=ent_nome)
                 return
 
-            permissoes_selecionadas = {k: var.get() for k, var in self.perm_vars.items() if var.get()}
-            print("Permissões salvas:", permissoes_selecionadas)
-            self.alert("Sucesso", f"Perfil {nome} guardado com sucesso!", type="info")
-            top.close()
+            # Pega dinamicamente todas as chaves da árvore que o usuário marcou o check
+            permissoes_selecionadas = {k: True for k, var in self.perm_vars.items() if var.get()}
+
+            try:
+                if mode == "add":
+                    perfis_repo.criar_perfil(nome, descricao, permissoes_selecionadas)
+                    msg_sucesso = f"Perfil '{nome}' guardado com sucesso!"
+                else:
+                    perfis_repo.update(uid=initial["Id"], Nome=nome, Descricao=descricao,
+                                       Permissoes=json.dumps(permissoes_selecionadas))
+                    msg_sucesso = f"Perfil '{nome}' atualizado com sucesso!"
+
+                # 1. Atualiza a tabela por trás
+                self.table.load_page(self.table.page)
+
+                # 2. Fecha o modal PRIMEIRO para evitar o erro de foco do Tkinter
+                top.close()
+
+                # 3. Dispara o alerta de sucesso já na tela principal
+                self.alert("Sucesso", msg_sucesso, type="success")
+
+            except Exception as e:
+                if "UNIQUE" in str(e).upper() or "DUPLICATE" in str(e).upper():
+                    top.alert("Erro", "Já existe um perfil com este nome.", type="error")
+                else:
+                    top.alert("Erro de Sistema", f"Falha ao salvar:\n{str(e)}", type="error")
 
         PillButton(frm_footer, text="Salvar Perfil", command=_save, variant="success").pack(side="right")
         PillButton(frm_footer, text="Cancelar", command=top.close, variant="outline").pack(side="right", padx=10)
@@ -487,7 +512,16 @@ class PerfisPage(Page):
 
         if mode == "edit" and initial:
             ent_nome.insert(0, initial.get("Nome", ""))
-            ent_desc.insert(0, initial.get("Descricao", ""))
+
+            # Se a descrição for nula no banco, evita erro colocando string vazia
+            desc = initial.get("Descricao")
+            ent_desc.insert(0, desc if desc else "")
+
+            # Carrega as permissões do banco e marca automaticamente os checkboxes da árvore
+            perms_salvas = perfis_repo.obter_permissoes(initial["Id"])
+            for chave, var in self.perm_vars.items():
+                if perms_salvas.get(chave) is True:
+                    var.set(True)
 
         if mode == "add":
             ent_nome.focus_set()

@@ -130,7 +130,7 @@ class UsuarioDialog(SaaSModal):
 
                 # Validação estrita: exatamente 6 dígitos numéricos
                 if not senha or not senha.isdigit() or len(senha) != 6:
-                    self.alert("Atenção", "A senha inicial deve conter exatamente 6 números.",
+                    self.alert("Atenção", "A senha deve conter 6 números.",
                                focus_widget=self.ent_senha)
                     return
 
@@ -160,7 +160,8 @@ class UsuariosPage(Page):
     def __init__(self, parent):
         super().__init__(parent, style="Main.TFrame")
         self.columnconfigure(0, weight=1)
-        self.rowconfigure(0, weight=1)
+        self.rowconfigure(0, weight=0)
+        self.rowconfigure(1, weight=1)
 
         # Definição das colunas da tabela
         cols = [
@@ -190,7 +191,7 @@ class UsuariosPage(Page):
 
         # Criação da tabela padrão do sistema
         self.table = StandardTable(self, columns=cols, fetch_fn=_fetch_data, page_size=PAGE_SIZE_DEFAULT)
-        self.table.grid(row=0, column=0, sticky="nsew")
+        self.table.grid(row=0, column=0, sticky="new")
 
         # Barra de ferramentas (Botões de ação)
         left_box = self.table.left_actions
