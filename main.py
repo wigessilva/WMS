@@ -189,6 +189,7 @@ class App(ttk.Frame):
 
         # Render da sidebar
         current_row = 1
+        self.nested_info = {}
         for idx, (icon_name, text) in enumerate(BUTTONS):
             header = tk.Frame(sidebar, bg=Colors.BG_SIDEBAR)
             header.grid(row=current_row, column=0, sticky="ew",
@@ -266,6 +267,8 @@ class App(ttk.Frame):
                 SUB_LEFT_PAD = sub_left_pad_for_icon(icon_name)
 
                 group_markers = []
+                # Removida a linha "nested_info = {}" daqui
+                last_parent_text = None
 
                 for si, sub in enumerate(sub_list):
                     # Verifica se é uma sub-subpágina pelo prefixo
@@ -273,19 +276,39 @@ class App(ttk.Frame):
                     display_text = sub[2:] if is_nested else sub
 
                     sub_row = tk.Frame(sub_container, bg=Colors.BG_SIDEBAR)
-                    sub_row.grid(row=si, column=0, sticky="ew")
+
+                    if is_nested:
+                        sub_row.grid(row=si, column=0, sticky="ew")
+                        sub_row.grid_remove()  # NASCE FECHADO
+                        if last_parent_text and last_parent_text in self.nested_info:
+                            self.nested_info[last_parent_text]['rows'].append(sub_row)
+                    else:
+                        sub_row.grid(row=si, column=0, sticky="ew")
+                        # Verifica se o próximo item da lista é um filho deste item
+                        has_children = (si + 1 < len(sub_list) and sub_list[si + 1].startswith("- "))
+                        if has_children:
+                            last_parent_text = display_text
+                            self.nested_info[display_text] = {'rows': [], 'open': False, 'arrow': None}
+                        else:
+                            last_parent_text = None
+
                     if ROW_H_STD["px"]:
                         sub_row.configure(height=ROW_H_STD["px"])
                         sub_row.grid_propagate(False)
                         sub_row.rowconfigure(0, weight=1)
+
                     sub_row.columnconfigure(0, weight=1)
                     sub_row.columnconfigure(1, weight=0)
+                    sub_row.columnconfigure(2, weight=0)
 
-                    # Aumenta o recuo (padding) em 16px se for uma sub-subpágina
+                    # Aumenta o recuo (padding) se for uma sub-subpágina
                     current_pad = SUB_LEFT_PAD + 16 if is_nested else SUB_LEFT_PAD
 
-                    # Define cursor de "mãozinha" se a página existir, senão cursor normal (seta)
-                    cursor_type = "hand2" if display_text in self.page_factories else "arrow"
+                    # É o título de um grupo (ex: "Acessos")
+                    is_parent = (not is_nested and last_parent_text == display_text)
+
+                    # Define cursor
+                    cursor_type = "hand2" if (display_text in self.page_factories or is_parent) else "arrow"
 
                     sub_btn = tk.Button(
                         sub_row, text=display_text, font=SUB_FONT,
@@ -296,14 +319,45 @@ class App(ttk.Frame):
                     )
                     sub_btn.grid(row=0, column=0, sticky="nsew", padx=0, ipady=2)
 
+                    sub_arrow_btn = None
+                    if is_parent:
+                        sub_arrow_btn = tk.Button(
+                            sub_row, text=ARROW_LEFT, font=ARROW_FONT,
+                            fg=Colors.TEXT_SIDEBAR, bg=Colors.BG_SIDEBAR,
+                            activeforeground=Colors.TEXT_SIDEBAR, activebackground=Colors.ROW_HOVER_SB,
+                            relief="flat", bd=0, highlightthickness=0, cursor="hand2",
+                            width=2, anchor="e", padx=0
+                        )
+                        sub_arrow_btn.grid(row=0, column=1, sticky="e", padx=(6, 6))
+                        self.nested_info[display_text]['arrow'] = sub_arrow_btn
+
+                        # Função de clique para abrir/fechar o submenu aninhado
+                        def toggle_nested(p_text=display_text):
+                            info = self.nested_info[p_text]
+                            if info['open']:
+                                info['arrow'].configure(text=ARROW_LEFT)
+                                for r in info['rows']: r.grid_remove()
+                                info['open'] = False
+                            else:
+                                info['arrow'].configure(text=ARROW_DOWN)
+                                for r in info['rows']: r.grid()
+                                info['open'] = True
+
+                        sub_btn.configure(command=toggle_nested)
+                        sub_arrow_btn.configure(command=toggle_nested)
+
                     sub_marker = tk.Canvas(sub_row, width=MARKER_W, height=1,
                                            bg=Colors.BG_SIDEBAR, bd=0, highlightthickness=0)
-                    sub_marker.grid(row=0, column=1, sticky="ns", padx=(0, 0))
+                    col_marker = 2 if is_parent else 1
+                    sub_marker.grid(row=0, column=col_marker, sticky="ns", padx=(0, 0))
                     group_markers.append(sub_marker)
 
-                    sub_widgets = (sub_row, sub_btn, sub_marker)
+                    if is_parent:
+                        sub_widgets = (sub_row, sub_btn, sub_arrow_btn, sub_marker)
+                    else:
+                        sub_widgets = (sub_row, sub_btn, sub_marker)
 
-                    # Aplica hover e clique APENAS se a página estiver registrada
+                    # Aplica hover e clique APENAS se a página estiver registrada ou se for Pai (Acessos)
                     if display_text in self.page_factories:
                         sub_btn.bind("<Enter>", lambda e, r=sub_row, ws=sub_widgets, m=sub_marker: on_enter(r, ws, m))
                         sub_btn.bind("<Leave>", lambda e, r=sub_row, ws=sub_widgets, m=sub_marker: on_leave(r, ws, m))
@@ -314,8 +368,12 @@ class App(ttk.Frame):
                                 self.show_page(name)
 
                         sub_btn.configure(command=open_sub)
+                    elif is_parent:
+                        for w in (sub_btn, sub_arrow_btn):
+                            w.bind("<Enter>", lambda e, r=sub_row, ws=sub_widgets, m=sub_marker: on_enter(r, ws, m))
+                            w.bind("<Leave>", lambda e, r=sub_row, ws=sub_widgets, m=sub_marker: on_leave(r, ws, m))
                     else:
-                        # Tira o efeito de fundo no hover para itens que funcionam apenas como título/separador
+                        # Tira o efeito de fundo no hover para itens que funcionam apenas como separador
                         sub_btn.configure(activebackground=Colors.BG_SIDEBAR)
 
                     sub_row.bind("<Configure>", lambda e, m=sub_marker, r=sub_row:
