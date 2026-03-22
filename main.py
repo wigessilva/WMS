@@ -631,8 +631,88 @@ class App(ttk.Frame):
         except Exception:
             return Colors.BG_APP
 
+    def show_toast(self, message):
+        # Cria a notificação preta (Toast) estilo mobile
+        toast = tk.Toplevel(self)
+        toast.wm_overrideredirect(True)
+        toast.configure(bg="#222222")
+        toast.attributes("-alpha", 0.0)  # Começa invisível para o efeito
+
+        lbl = tk.Label(toast, text=message, fg="white", bg="#222222", font=("Segoe UI", 10), padx=20, pady=10)
+        lbl.pack()
+
+        toast.update_idletasks()
+        w = toast.winfo_width()
+        h = toast.winfo_height()
+
+        # Posiciona no centro inferior, 80px acima da barra de tarefas do Windows
+        sw = self.winfo_screenwidth()
+        sh = self.winfo_screenheight()
+        x = (sw - w) // 2
+        y = sh - h - 80
+
+        toast.geometry(f"{w}x{h}+{x}+{y}")
+
+        # Animação para aparecer
+        def fade_in(alpha=0.0):
+            if alpha < 0.9:
+                alpha += 0.1
+                toast.attributes("-alpha", alpha)
+                self.after(30, fade_in, alpha)
+            else:
+                self.after(3000, fade_out, 0.9)  # Espera 3 segundos e começa a apagar
+
+        # Animação para sumir
+        def fade_out(alpha=0.9):
+            if alpha > 0:
+                alpha -= 0.1
+                toast.attributes("-alpha", alpha)
+                self.after(30, fade_out, alpha)
+            else:
+                toast.destroy()
+
+        fade_in()
+
     def show_page(self, name: str, **kwargs):
         if name not in self.page_factories: return
+
+        # ====================================================================
+        # 1. VERIFICAÇÃO DE PERMISSÕES DE ACESSO
+        # ====================================================================
+        from utils.session import sessao
+
+        # Mapeia o nome da tela na sidebar para a chave de permissão no banco
+        mapa_permissoes = {
+            "Cadastro de Produtos": "produtos",
+            "Famílias": "produtos",
+            "Vínculos de Fornecedores": "produtos",
+            "Recebimento": "recebimento",
+            "LPNs": "estoque",
+            "Endereços": "configuracoes",
+            "Locais de Estoque": "configuracoes",
+            "Unidades de Medida": "configuracoes",
+            "Políticas Globais": "configuracoes",
+            "Impressão": "configuracoes",
+            "Usuários": "configuracoes",
+            "Perfis": "configuracoes",
+            "Atividades": "atividades",
+            "Expedição": "expedicao",
+            "Pedidos": "pedidos",
+            "Relatórios": "relatorios"
+        }
+
+        perm_necessaria = mapa_permissoes.get(name)
+
+        if perm_necessaria:
+            # O Administrador (admin_total) ignora essas regras e acessa tudo
+            is_admin = sessao.permissoes.get("admin_total", False)
+            tem_acesso = sessao.permissoes.get(perm_necessaria, False)
+
+            if not is_admin and not tem_acesso:
+                self.show_toast("Você não possui autorização para acessar esta página. Contate o administrador.")
+                return # Trava a execução aqui e impede a tela de mudar
+        # ====================================================================
+
         if self.current_page_name:
             cur = self.pages.get(self.current_page_name)
             if cur:
