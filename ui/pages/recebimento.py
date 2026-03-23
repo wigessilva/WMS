@@ -622,7 +622,7 @@ class RecebimentoControlPanel(SaaSModal):
                                              checkboxes=True)
         self.tbl_conferencia.grid(row=0, column=0, sticky="nsew")
 
-        # --- NOVO RODAPÉ DA ABA CONFERÊNCIA ---
+        from utils.session import sessao
         footer_conf = tk.Frame(self.tab_frame, bg=Colors.BG_APP)
         footer_conf.grid(row=1, column=0, sticky="ew", padx=20, pady=10)
 
@@ -630,11 +630,11 @@ class RecebimentoControlPanel(SaaSModal):
         status_pr = self.header_data.get("Status")
         itens = recebimento_repo.list_itens_por_pr(self.pr_code)
         tem_coleta = any(float(i.get('QtdColetada', 0)) > 0 for i in itens)
-        pode_recontar = (
-                    (tem_coleta or status_pr == StatusPR.EM_CONFERENCIA) and status_pr not in [StatusPR.CONCLUIDO,
-                                                                                               StatusPR.CANCELADO])
+        pode_recontar = ((tem_coleta or status_pr == StatusPR.EM_CONFERENCIA) and
+                         status_pr not in [StatusPR.CONCLUIDO, StatusPR.CANCELADO])
 
-        if pode_recontar:
+        # Alteração: Só renderiza se tiver a permissão rec_painel_reconferencia
+        if pode_recontar and sessao.tem_permissao("rec_painel_reconferencia"):
             PillButton(footer_conf, text="Reconferência", variant="outline",
                        icon=load_icon("refresh", 16), height=34,
                        command=self._acao_recontar_selecionados).pack(side="right")
@@ -846,6 +846,10 @@ class RecebimentoControlPanel(SaaSModal):
         tk.Label(frm_edit_content, text="DADOS PRINCIPAIS", font=("Segoe UI", 8, "bold"),
                  fg=Colors.TEXT_HINT, bg=Colors.BG_CARD).pack(anchor="w", pady=(0, 8))
 
+        # Checa a permissão de edição
+        from utils.session import sessao
+        pode_editar = sessao.tem_permissao("rec_painel_edit")
+
         # CAMPO OC
         row_oc = tk.Frame(frm_edit_content, bg=Colors.BG_CARD)
         row_oc.pack(fill="x", pady=(0, 8))
@@ -858,7 +862,11 @@ class RecebimentoControlPanel(SaaSModal):
                                  bg=Colors.BG_CARD, variant="outline")
         btn_edit_oc.pack(side="right")
 
+        if not pode_editar:
+            btn_edit_oc.state(["disabled"])
+
         def _unlock_oc():
+            if not pode_editar: return
             current = str(self.entry_oc._entry["state"])
             if current == 'disabled':
                 self.entry_oc.configure(state="normal")
@@ -889,7 +897,11 @@ class RecebimentoControlPanel(SaaSModal):
                                    bg=Colors.BG_CARD, variant="outline")
         btn_edit_dest.pack(side="right")
 
+        if not pode_editar:
+            btn_edit_dest.state(["disabled"])
+
         def _unlock_dest():
+            if not pode_editar: return
             current_state = str(self.cmb_dest._entry["state"])
             if current_state == 'disabled':
                 self.cmb_dest.configure(state="normal")
@@ -904,6 +916,7 @@ class RecebimentoControlPanel(SaaSModal):
                  fg=Colors.TEXT_HINT, bg=Colors.BG_CARD).pack(anchor="w", padx=(58, 0), pady=(2, 0))
 
         def _acao_aplicar_dados():
+            if not pode_editar: return
             nova_oc = self.entry_oc.get().strip()
             novo_dest = self.cmb_dest.get()
             recebimento_repo.update_pr_dados(self.pr_code, nova_oc=nova_oc, novo_destino=novo_dest,
@@ -918,7 +931,11 @@ class RecebimentoControlPanel(SaaSModal):
 
         btn_container = tk.Frame(frm_edit_content, bg=Colors.BG_CARD)
         btn_container.pack(side="bottom", fill="x", pady=(8, 0))
-        PillButton(btn_container, text="Aplicar", variant="success", command=_acao_aplicar_dados).pack(side="right")
+        btn_aplicar = PillButton(btn_container, text="Aplicar", variant="success", command=_acao_aplicar_dados)
+        btn_aplicar.pack(side="right")
+
+        if not pode_editar:
+            btn_aplicar.state(["disabled"])
 
         # ==============================================================================
         # 2. CARDS DE INSIGHTS (Meio)
@@ -982,6 +999,7 @@ class RecebimentoControlPanel(SaaSModal):
         # ==============================================================================
         # 4. RODAPÉ DE AÇÃO
         # ==============================================================================
+        from utils.session import sessao
         footer = tk.Frame(self.tab_frame, bg=Colors.BG_APP)
         footer.pack(side="bottom", fill="x", padx=20, pady=20)
 
@@ -1012,7 +1030,7 @@ class RecebimentoControlPanel(SaaSModal):
         contexto_wf = wf.get_contexto_ui()
         pode_liberar = 'liberar_conferencia' in contexto_wf['acoes_workflow']
 
-        if pode_concluir:
+        if pode_concluir and sessao.tem_permissao("rec_painel_concluir"):
             lbl_btn = "Concluir"
 
             if veredito_nivel == "success":
@@ -1061,40 +1079,41 @@ class RecebimentoControlPanel(SaaSModal):
             if tem_avaria:
                 opcoes_aceite.append(("Recusar Avariados", self._acao_recusar_avariados))
 
-            # A Recusa Total atua como 'Abortar' e sempre fica disponível
-            opcoes_aceite.append(("Recusa Total", self._acao_cancelar_pr))
-            # ==============================================================================
+                # Filtra as opções do SplitButton para o Cancelamento (Recusa Total)
+                # Só mostra "Recusa Total" se tiver permissão de cancelar
+                opcoes_filtradas = opcoes_aceite
+                if not sessao.tem_permissao("rec_painel_cancelar"):
+                    opcoes_filtradas = [opt for opt in opcoes_aceite if opt[0] != "Recusa Total"]
 
-            cmd_principal = lambda: self._acao_conclusao_forcada("Concluir")
+                self.btn_action = SplitButton(
+                    footer,
+                    text=lbl_btn,
+                    variant=var_btn,
+                    icon=load_icon(icon_btn, 16),
+                    command=lambda: self._acao_conclusao_forcada("Concluir"),
+                    options=opcoes_filtradas
+                )
+                self.btn_action.pack(side="right", padx=(10, 0))
 
-            self.btn_action = SplitButton(
-                footer,
-                text=lbl_btn,
-                variant=var_btn,
-                icon=load_icon(icon_btn, 16),
-                command=cmd_principal,
-                options=opcoes_aceite
-            )
-            self.btn_action.pack(side="right", padx=(10, 0))
+                # --- BOTÃO LIBERAR CONFERÊNCIA ---
+            elif pode_liberar and sessao.tem_permissao("rec_painel_liberar"):
+                PillButton(footer, text="Liberar Conferência", variant="primary",
+                           icon=load_icon("check_blue", 16), height=34,
+                           command=self._acao_liberar_conferencia).pack(side="right", padx=(10, 0))
 
-        # --- BOTÃO LIBERAR CONFERÊNCIA ---
-        elif pode_liberar:
-            PillButton(footer, text="Liberar Conferência", variant="primary", icon=load_icon("check_blue", 16),
-                       height=34,
-                       command=self._acao_liberar_conferencia).pack(side="right", padx=(10, 0))
+                # --- BOTÃO ESTORNAR/CANCELAR (DENTRO DO STATUS EM_CONFERENCIA) ---
+            if status_pr == StatusPR.EM_CONFERENCIA:
+                if sessao.tem_permissao("rec_painel_cancelar"):
+                    PillButton(footer, text="Estornar Conferência", variant="outline",
+                               icon=load_icon("cancel", 16), height=34,
+                               command=self._acao_estornar_conferencia).pack(side="right", padx=(10, 0))
 
-        # --- LÓGICA DOS BOTÕES DE RETORNO/ESTORNO ---
-
-        if status_pr == StatusPR.EM_CONFERENCIA:
-            # Conferência Ativa -> Permite Cancelar (Estornar)
-            PillButton(footer, text="Estornar Conferência", variant="outline", icon=load_icon("cancel", 16),
-                       height=34,
-                       command=self._acao_estornar_conferencia).pack(side="right", padx=(10, 0))
-
-        elif status_pr == StatusPR.AGUARDANDO_CONF:
-            PillButton(footer, text="Desfazer Liberação", variant="outline", icon=load_icon("cancel", 16),
-                       height=34,
-                       command=self._acao_desfazer_liberacao).pack(side="right", padx=(10, 0))
+                # --- BOTÃO DESFAZER LIBERAÇÃO ---
+            elif status_pr == StatusPR.AGUARDANDO_CONF:
+                if sessao.tem_permissao("rec_painel_desfazer"):
+                    PillButton(footer, text="Desfazer Liberação", variant="outline",
+                               icon=load_icon("cancel", 16), height=34,
+                               command=self._acao_desfazer_liberacao).pack(side="right", padx=(10, 0))
 
         # --- LABEL DE STATUS FINAL ---
         if status_pr == StatusPR.CONCLUIDO:
@@ -1431,6 +1450,16 @@ class RecebimentoControlPanel(SaaSModal):
 
         if not qualidade_ui:
             qualidade_ui.append({"text": "Nenhum problema de qualidade identificado", "color": COR_VERDE})
+
+            # --- OCULTAR CARD FÍSICO SE NECESSÁRIO ---
+        from utils.session import sessao
+        status_finais = [StatusPR.CONCLUIDO, StatusPR.CANCELADO, StatusPR.ESTORNADO]
+
+        if not sessao.tem_permissao("rec_vis_qtd") and status_pr not in status_finais:
+            fisico_ui = [{
+                             "text": "Para conferir quantidades, aguarde o fim do recebimento",
+                             "color": COR_CINZA}]
+        # -----------------------------------------
 
         # --- VEREDITO FINAL ---
         has_issue_fisico = any(x['color'] in [COR_VERMELHO, COR_AMARELO] for x in fisico_ui)
@@ -1834,10 +1863,11 @@ class RecebimentoPage(Page):
                                       icon=load_icon("edit", 16), command=self._alterar_destino_item)
         self.btn_destino.pack(side="left", padx=(0, 10))
 
-        # Área DIREITA (Configurações / Extras)
         # Área DIREITA
         # Movemos a configuração para o menu "..." para economizar espaço
-        self.table_top.add_overflow_menu_action("Configurar Pasta XML...", self._configurar_pasta)
+        from utils.session import sessao
+        if sessao.tem_permissao("rec_conf_pasta"):
+            self.table_top.add_overflow_menu_action("Configurar Pasta XML...", self._configurar_pasta)
 
         # Estado Inicial dos Botões
         for btn in [self.btn_gerenciar, self.btn_vincular]:
@@ -2023,6 +2053,17 @@ class RecebimentoPage(Page):
         pr_visual = selected.get("PrCode")
         pr_real = f"PR-{pr_visual}" if not str(pr_visual).startswith("PR-") else pr_visual
 
+        # --- NOVA VERIFICAÇÃO DE PERMISSÃO E STATUS ---
+        from utils.session import sessao
+        from utils.constants import StatusPR
+
+        header = recebimento_repo.get_by_pr(pr_real)
+        status_pr = header.get("Status") if header else ""
+        status_finais = [StatusPR.CONCLUIDO, StatusPR.CANCELADO, StatusPR.ESTORNADO]
+
+        esconder_qtd = not sessao.tem_permissao("rec_vis_qtd") and status_pr not in status_finais
+        # ----------------------------------------------
+
         # 2. Busca os itens (JÁ COM STATUS E MOTIVOS CALCULADOS PELO REPO)
         itens_raw = recebimento_repo.list_itens_por_pr(pr_real)
 
@@ -2054,6 +2095,11 @@ class RecebimentoPage(Page):
 
         for item in itens_page:
             row_view = dict(item)
+
+            # --- OCULTAR QUANTIDADE SE NECESSÁRIO ---
+            if esconder_qtd:
+                row_view["Qtd"] = "***"
+            # ----------------------------------------
 
             lotes = item.get("_LotesDetalhados")
             if lotes and isinstance(lotes, list) and len(lotes) > 0:
@@ -2187,7 +2233,9 @@ class RecebimentoPage(Page):
 
         contexto = wf.get_contexto_ui()
 
-        if contexto.get('pode_gerenciar_painel'):
+        from utils.session import sessao
+
+        if contexto.get('pode_gerenciar_painel') and sessao.tem_permissao("rec_painel"):
             self.btn_gerenciar.state(["!disabled"])
         else:
             self.btn_gerenciar.state(["disabled"])
@@ -2236,22 +2284,25 @@ class RecebimentoPage(Page):
         contexto = wf.get_contexto_ui()
 
         # 4. Aplica as regras nos botões
+        from utils.session import sessao
 
         # Regra: VINCULAR
-        # Só habilita se o Workflow disser que 'pode_vincular' (ex: Status Bloqueado ou Aguardando Vínculo)
-        if contexto['pode_vincular']:
+        if contexto['pode_vincular'] and sessao.tem_permissao("rec_vinc_sku"):
             self.btn_vincular.state(["!disabled"])
         else:
             self.btn_vincular.state(["disabled"])
 
         # Regra: ALTERAR DESTINO
-        # Só habilita se o Workflow disser que 'pode_editar_destino' (ex: Não está Concluído nem Cancelado)
-        if contexto['pode_editar_destino']:
+        if contexto['pode_editar_destino'] and sessao.tem_permissao("rec_alt_destino"):
             self.btn_destino.state(["!disabled"])
         else:
             self.btn_destino.state(["disabled"])
 
-        self.btn_gerenciar.state(["!disabled"])
+        # Regra: PAINEL
+        if sessao.tem_permissao("rec_painel"):
+            self.btn_gerenciar.state(["!disabled"])
+        else:
+            self.btn_gerenciar.state(["disabled"])
 
     def _abrir_modal_vinculo(self):
         item_sel = self.table_bottom.get_selected()

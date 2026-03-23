@@ -14,7 +14,7 @@ from database.repositories import perfis_repo
 # =====================================================================
 # Dicionário Hierárquico de Permissões (Estrutura Achatada)
 # =====================================================================
-MOCK_HIERARQUIA_PERMISSOES = {
+HIERARQUIA_PERMISSOES = {
     "recebimento": {
         "titulo": "Recebimento",
         "itens": {
@@ -36,16 +36,11 @@ MOCK_HIERARQUIA_PERMISSOES = {
         "titulo": "Gestão de Produtos",
         "itens": {
             "prod_vis": {"nome": "Visualizar página de produtos"},
-            "prod_edit_cad_codfor": {"nome": "Editar cód. fornecedor"},
-            "prod_edit_cad_ref": {"nome": "Editar referência"},
-            "prod_edit_cad_emb_dim": {"nome": "Editar dimensões"},
-            "prod_edit_cad_emb_peso": {"nome": "Editar peso"},
-            "prod_edit_cad_emb_gtin": {"nome": "Editar GTIN"},
-            "prod_edit_pol": {"nome": "Editar políticas"},
+            "prod_edit": {"nome": "Editar produto"},
             "prod_fam_vis": {"nome": "Visualizar página de famílias"},
-            "prod_fam_edit": {"nome": "Criar e editar famílias"},
-            "prod_fam_del": {"nome": "Excluir famílias"},
-            "prod_vinc_vis": {"nome": "Visualizar página de vínculos de fornecedores"},
+            "prod_fam_edit": {"nome": "Criar e editar família"},
+            "prod_fam_del": {"nome": "Excluir família"},
+            "prod_vinc_vis": {"nome": "Visualizar página de vínculo de fornecedores"},
             "prod_vinc_del": {"nome": "Excluir vínculo"}
         }
     },
@@ -81,6 +76,7 @@ MOCK_HIERARQUIA_PERMISSOES = {
             "conf_enderecos_areas": {"nome": "Criar e editar áreas"},
             "conf_unidades_vis": {"nome": "Visualizar página de unidades de medida"},
             "conf_unidades_edit": {"nome": "Criar e editar unidades de medida"},
+            "conf_unidades_sinonimos_vis": {"nome": "Visualizar tabela de sinônimos XMLs"},
             "conf_unidades_sinonimos": {"nome": "Configurar sinônimos XMLs"},
             "conf_politicas_vis": {"nome": "Visualizar página de políticas globais"},
             "conf_politicas_excecoes": {"nome": "Visualizar tabela de exceções"},
@@ -393,7 +389,7 @@ class PerfisPage(Page):
         # Estado a ser repassado para a criação das caixinhas
         node_state = "disabled" if is_readonly else "normal"
 
-        for mod_key, mod_info in MOCK_HIERARQUIA_PERMISSOES.items():
+        for mod_key, mod_info in HIERARQUIA_PERMISSOES.items():
 
             # Subtítulo de seção fora do Card
             tk.Label(scroll_content, text=mod_info["titulo"], font=("Segoe UI", 11, "bold"),
